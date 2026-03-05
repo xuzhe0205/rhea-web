@@ -1,6 +1,17 @@
 "use client";
 
-export function Sidebar(props: { open: boolean; onClose: () => void }) {
+type Conversation = { id: string; title: string; updatedAt?: string };
+
+export function Sidebar(props: {
+  open: boolean;
+  onClose: () => void;
+
+  conversations: Conversation[];
+  activeConversationId: string | null;
+  onSelectConversation: (id: string) => void;
+
+  onCreateConversation: () => void;
+}) {
   return (
     <>
       <div
@@ -23,8 +34,7 @@ export function Sidebar(props: { open: boolean; onClose: () => void }) {
         <div className="flex h-full flex-col">
           {/* Brand */}
           <div className="flex h-14 items-center justify-between px-4">
-            {/* RHEA + Index sublabel */}
-            <div className="leading-tight">
+            <div className="leading-tight select-text">
               <div className="text-[13px] font-medium tracking-[0.18em] text-[color:var(--text-0)]">
                 RHEA
               </div>
@@ -34,7 +44,7 @@ export function Sidebar(props: { open: boolean; onClose: () => void }) {
             </div>
 
             <button
-              className="md:hidden inline-flex h-9 w-9 items-center justify-center rounded-[var(--radius-md)] border border-[color:var(--border-0)] bg-[color:var(--bg-1)] text-[color:var(--text-0)] hover:bg-[color:var(--bg-3)] transition"
+              className="md:hidden inline-flex h-9 w-9 items-center justify-center rounded-[var(--radius-md)] border border-[color:var(--border-0)] bg-[color:var(--bg-1)] text-[color:var(--text-0)] hover:bg-[color:var(--bg-3)] transition cursor-pointer"
               onClick={props.onClose}
               aria-label="Close sidebar"
               title="Close sidebar"
@@ -48,35 +58,66 @@ export function Sidebar(props: { open: boolean; onClose: () => void }) {
           </div>
 
           <nav className="flex-1 overflow-y-auto px-2 py-2">
-            <SectionLabel>Conversations</SectionLabel>
-            <NavItem active>RHEA Session</NavItem>
-            <NavItem>Study: RAG notes</NavItem>
-            <NavItem>Shared: Project plan</NavItem>
+            <SectionHeader label="Conversations" />
+            <div className="space-y-1">
+              {props.conversations.length === 0 ? (
+                <div className="px-2 py-2 text-xs text-[color:var(--text-2)]">
+                  No conversations yet.
+                </div>
+              ) : (
+                props.conversations.map((c) => (
+                  <NavItem
+                    key={c.id}
+                    active={props.activeConversationId === c.id}
+                    onClick={() => props.onSelectConversation(c.id)}
+                  >
+                    {c.title}
+                  </NavItem>
+                ))
+              )}
+            </div>
+
+            {/* New conversation button under the list */}
+            <div className="mt-2">
+              <ActionRowButton onClick={props.onCreateConversation}>
+                <PlusIcon />
+                <span>New</span>
+              </ActionRowButton>
+            </div>
 
             <div className="h-4" />
 
-            <SectionLabel>Notebook</SectionLabel>
-            <NavItem>Favorites</NavItem>
-            <NavItem>Notes</NavItem>
-            <NavItem>Summaries</NavItem>
+            {/* Projects parked */}
+            <SectionHeader label="Projects" soon />
+            <div className="px-2 py-2 text-xs text-[color:var(--text-2)]">
+              Coming soon.
+            </div>
 
             <div className="h-4" />
 
-            <SectionLabel>Agent</SectionLabel>
-            <NavItem>Tasks (soon)</NavItem>
+            <SectionHeader label="Favorites" />
+            <div className="px-2 py-2 text-xs text-[color:var(--text-2)]">
+              Star a chat to pin it here.
+            </div>
+
+            <div className="h-4" />
+
+            <SectionHeader label="Agent" />
+            <NavItem disabled>Tasks (soon)</NavItem>
+            <NavItem disabled>Research Operator (soon)</NavItem>
           </nav>
 
           {/* Profile bottom */}
           <div className="border-t border-[color:var(--border-0)] p-3">
             <div className="flex items-center gap-3">
               <div className="flex h-8 w-8 items-center justify-center rounded-full border border-[color:var(--border-0)] bg-[color:var(--bg-2)] text-xs font-medium">
-                OT
+                N
               </div>
               <div className="min-w-0">
-                <div className="truncate text-sm text-[color:var(--text-0)]">
+                <div className="truncate text-sm text-[color:var(--text-0)] select-text">
                   Account
                 </div>
-                <div className="truncate text-xs text-[color:var(--text-2)]">
+                <div className="truncate text-xs text-[color:var(--text-2)] select-text">
                   Settings & profile
                 </div>
               </div>
@@ -88,34 +129,71 @@ export function Sidebar(props: { open: boolean; onClose: () => void }) {
   );
 }
 
-function SectionLabel({ children }: { children: React.ReactNode }) {
+function SectionHeader({ label, soon }: { label: string; soon?: boolean }) {
   return (
-    <div className="px-2 pb-1 pt-3 text-[11px] font-medium uppercase tracking-[0.14em] text-[color:var(--text-2)]">
-      {children}
+    <div className="px-2 pb-1 pt-3 flex items-center justify-between">
+      <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-[color:var(--text-2)]">
+        {label}
+      </div>
+      {soon ? (
+        <div className="text-[10px] uppercase tracking-[0.14em] text-[color:var(--text-2)] opacity-70">
+          soon
+        </div>
+      ) : null}
     </div>
   );
 }
 
-function NavItem({
-  children,
-  active,
-}: {
+function NavItem(props: {
   children: React.ReactNode;
   active?: boolean;
+  disabled?: boolean;
+  onClick?: () => void;
 }) {
+  const disabled = !!props.disabled;
   return (
     <button
       className={[
         "relative flex w-full items-center rounded-[var(--radius-md)] px-3 py-2 text-left text-sm transition",
-        "text-[color:var(--text-0)] hover:bg-[color:var(--bg-3)]",
-        active ? "bg-[color:var(--bg-2)]" : "",
+        "text-[color:var(--text-0)]",
+        disabled ? "opacity-45 cursor-not-allowed" : "hover:bg-[color:var(--bg-3)] cursor-pointer",
+        props.active ? "bg-[color:var(--bg-2)]" : "",
       ].join(" ")}
       type="button"
+      onClick={disabled ? undefined : props.onClick}
     >
-      {active ? (
+      {props.active ? (
         <span className="absolute left-0 top-1/2 h-5 -translate-y-1/2 rounded-full border-l-2 border-[color:var(--accent)]" />
       ) : null}
-      <span className="ml-1 truncate">{children}</span>
+      <span className="ml-1 truncate select-text">{props.children}</span>
     </button>
+  );
+}
+
+function ActionRowButton(props: {
+  children: React.ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={props.onClick}
+      className="inline-flex w-full items-center gap-2 rounded-[var(--radius-md)] px-3 py-2 text-sm text-[color:var(--text-1)] hover:bg-[color:var(--bg-3)] hover:text-[color:var(--text-0)] transition cursor-pointer"
+    >
+      {props.children}
+    </button>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M12 5v14M5 12h14"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+    </svg>
   );
 }

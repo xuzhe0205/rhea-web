@@ -8,8 +8,10 @@ export function Topbar(props: {
   title: string;
   participants: Participant[];
   onOpenSidebar: () => void;
-  onNewConversation: () => void;
+  onNewConversation?: () => void;
 }) {
+  const showParticipants = props.participants.length > 1;
+
   return (
     <header className="sticky top-0 z-10 border-b border-[color:var(--border-0)] bg-[color:var(--bg-0)]">
       <div className="flex h-14 items-center justify-between px-4 md:px-6">
@@ -43,33 +45,41 @@ export function Topbar(props: {
           <Wordmark />
         </div>
 
-        {/* Right: participants (desktop) + new */}
+        {/* Right side */}
         <div className="flex items-center gap-3">
-          <div className="hidden sm:block">
+
+          {/* Only show if >1 participants */}
+          {showParticipants && (
+            <div className="hidden sm:block">
+              <ParticipantsBadges participants={props.participants} />
+            </div>
+          )}
+
+          {/* Mobile new conversation button */}
+          {props.onNewConversation && (
+            <button
+              className="md:hidden inline-flex h-9 w-9 items-center justify-center rounded-[var(--radius-md)] border border-[color:var(--border-0)] bg-[color:var(--bg-1)] text-[color:var(--text-0)] hover:bg-[color:var(--bg-3)] transition rhea-focus"
+              onClick={props.onNewConversation}
+              aria-label="New conversation"
+              title="New conversation"
+            >
+              <PlusIcon />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Mobile participants row */}
+      {showParticipants && (
+        <div className="md:hidden -mt-1 pb-2">
+          <div className="flex items-center justify-center">
+            <Wordmark />
+          </div>
+          <div className="px-4 pt-1">
             <ParticipantsBadges participants={props.participants} />
           </div>
-
-          <button
-            className="inline-flex h-9 items-center gap-2 rounded-[var(--radius-md)] border border-[color:var(--border-0)] bg-[color:var(--bg-1)] px-3 text-sm text-[color:var(--text-0)] hover:bg-[color:var(--bg-3)] transition rhea-focus"
-            onClick={props.onNewConversation}
-            aria-label="New conversation"
-            title="New conversation"
-          >
-            <PlusIcon />
-            <span className="hidden md:inline">New</span>
-          </button>
         </div>
-      </div>
-
-      {/* Mobile: center wordmark row + participants badges */}
-      <div className="md:hidden -mt-1 pb-2">
-        <div className="flex items-center justify-center">
-          <Wordmark />
-        </div>
-        <div className="px-4 pt-1">
-          <ParticipantsBadges participants={props.participants} />
-        </div>
-      </div>
+      )}
     </header>
   );
 }

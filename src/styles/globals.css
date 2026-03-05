@@ -44,3 +44,7 @@ body {
   background: rgba(17, 19, 24, 0.75);
   backdrop-filter: blur(6px);
 }
+
+button {
+  cursor: pointer;
+}
