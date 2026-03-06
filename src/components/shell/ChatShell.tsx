@@ -1,65 +1,74 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
 import { Sidebar } from "@/components/shell/Sidebar";
 import { Topbar } from "@/components/shell/Topbar";
 import { MessageList } from "@/components/chat/MessageList";
 import { Composer } from "@/components/chat/Composer";
 import { useAuth } from "@/context/AuthContext";
 import { listConversations } from "@/lib/conversations";
+import { listConversationMessages } from "@/lib/messages";
 
 type Participant = { id: string; name: string };
 
 type Msg = {
   id: string;
-  senderId: string;
-  senderName: string;
-  role: "rhea" | "user" | "teammate";
+  role: "user" | "assistant";
   content: string;
+  createdAt?: string;
 };
 
-type Conversation = { id: string; title: string; updatedAt?: string };
+type Conversation = {
+  id: string;
+  title: string;
+  updatedAt?: string;
+};
 
 function normalizeConversationTitle(c: any) {
-  // backend might return title, name, or empty
-  return (
-    c.title ||
-    c.name ||
-    c.subject ||
-    "Untitled"
-  );
+  return c.title || c.name || c.subject || "Untitled";
 }
 
 function normalizeUpdatedAt(c: any) {
   return c.updatedAt || c.updated_at || c.updatedAtIso || c.updated_at_iso;
 }
 
+function normalizeMessage(m: any): Msg {
+  return {
+    id: m.id,
+    role: m.role === "assistant" ? "assistant" : "user",
+    content: m.content || "",
+    createdAt: m.created_at || m.createdAt,
+  };
+}
+
+function sortMessagesAsc(xs: Msg[]) {
+  return [...xs].sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""));
+}
+
 export function ChatShell() {
+  const router = useRouter();
+  const params = useParams();
+
   const { state } = useAuth();
   const token = state.status === "authed" ? state.token : null;
   const me = state.status === "authed" ? state.me : null;
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
-
-  // conversations from backend
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loadingConvs, setLoadingConvs] = useState(false);
 
-  // active selection: null means "home/welcome"
-  const [activeConversationId, setActiveConversationId] = useState<string | null>(
-    null
-  );
-
-  // messages by conversation id (we'll wire to GET /messages later)
   const [messagesByConversation, setMessagesByConversation] = useState<
     Record<string, Msg[]>
   >({});
+  const [loadingMessagesFor, setLoadingMessagesFor] = useState<string | null>(null);
 
-  const participants: Participant[] = useMemo(() => {
-    // Only show Participants UI when >1 (you asked for this)
-    // Right now: just "You". Later: from conversation members API.
-    return [{ id: "me", name: "You" }];
-  }, []);
+  const threadRef = useRef<HTMLDivElement | null>(null);
+
+  const participants: Participant[] = useMemo(() => [{ id: "me", name: "You" }], []);
+
+  const activeConversationId =
+    typeof params?.id === "string" ? params.id : null;
 
   useEffect(() => {
     if (!token) return;
@@ -69,48 +78,87 @@ export function ChatShell() {
     listConversations(token)
       .then((rows) => {
         if (!alive) return;
+
         const mapped: Conversation[] = (rows ?? []).map((c: any) => ({
           id: c.id,
           title: normalizeConversationTitle(c),
           updatedAt: normalizeUpdatedAt(c),
         }));
-        // optional: sort by updatedAt desc if present
+
         mapped.sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
         setConversations(mapped);
-
-        // stay on "welcome" until user selects one
-        // or auto-select the most recent if you prefer:
-        // if (mapped.length > 0) setActiveConversationId(mapped[0].id);
       })
       .catch(() => {
         if (!alive) return;
         setConversations([]);
       })
-      .finally(() => alive && setLoadingConvs(false));
+      .finally(() => {
+        if (alive) setLoadingConvs(false);
+      });
 
     return () => {
       alive = false;
     };
   }, [token]);
 
-  function onSelectConversation(id: string) {
-    setActiveConversationId(id);
-    setSidebarOpen(false);
+  useEffect(() => {
+    if (!activeConversationId) return;
+    if (!token) return;
 
-    // later: fetch messages for that id
-    // for now: ensure we at least have an array
-    setMessagesByConversation((prev) => ({ ...prev, [id]: prev[id] ?? [] }));
+    void loadConversationMessages(activeConversationId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeConversationId, token]);
+
+  async function loadConversationMessages(conversationId: string) {
+    if (!token) return;
+
+    setLoadingMessagesFor(conversationId);
+
+    try {
+      const rows = await listConversationMessages(token, conversationId, 50);
+      const mapped = sortMessagesAsc((rows ?? []).map(normalizeMessage));
+
+      setMessagesByConversation((prev) => ({
+        ...prev,
+        [conversationId]: mapped,
+      }));
+
+      requestAnimationFrame(() => {
+        const el = threadRef.current;
+        if (el) {
+          el.scrollTop = el.scrollHeight;
+        }
+      });
+    } catch {
+      setMessagesByConversation((prev) => ({
+        ...prev,
+        [conversationId]: [],
+      }));
+    } finally {
+      setLoadingMessagesFor((curr) => (curr === conversationId ? null : curr));
+    }
+  }
+
+  function onSelectConversation(id: string) {
+    router.push(`/c/${id}`);
+    setSidebarOpen(false);
   }
 
   function createConversationLocal() {
-    // Until backend has POST /v1/conversations, we create a local stub.
-    // When backend exists, swap this to API call and refresh list.
     const id = crypto.randomUUID();
     const title = "New conversation";
 
-    setConversations((prev) => [{ id, title, updatedAt: new Date().toISOString() }, ...prev]);
-    setMessagesByConversation((prev) => ({ ...prev, [id]: [] }));
-    setActiveConversationId(id);
+    setConversations((prev) => [
+      { id, title, updatedAt: new Date().toISOString() },
+      ...prev,
+    ]);
+
+    setMessagesByConversation((prev) => ({
+      ...prev,
+      [id]: [],
+    }));
+
+    router.push(`/c/${id}`);
     setSidebarOpen(false);
   }
 
@@ -118,27 +166,31 @@ export function ChatShell() {
     const trimmed = text.trim();
     if (!trimmed) return;
 
-    // If user is on welcome page, route them into a new local conversation
     let convId = activeConversationId;
+
     if (!convId) {
-      createConversationLocal();
-      // state update is async; generate a conv id ourselves instead:
-      // simplest: createConversationLocal already made one, but we don’t have it here.
-      // So: do it inline so we can append message reliably.
       const id = crypto.randomUUID();
       const title = "New conversation";
-      setConversations((prev) => [{ id, title, updatedAt: new Date().toISOString() }, ...prev]);
-      setMessagesByConversation((prev) => ({ ...prev, [id]: [] }));
-      setActiveConversationId(id);
+
+      setConversations((prev) => [
+        { id, title, updatedAt: new Date().toISOString() },
+        ...prev,
+      ]);
+
+      setMessagesByConversation((prev) => ({
+        ...prev,
+        [id]: [],
+      }));
+
+      router.push(`/c/${id}`);
       convId = id;
     }
 
     const msg: Msg = {
       id: crypto.randomUUID(),
-      senderId: "me",
-      senderName: "You",
       role: "user",
       content: trimmed,
+      createdAt: new Date().toISOString(),
     };
 
     setMessagesByConversation((prev) => ({
@@ -146,10 +198,13 @@ export function ChatShell() {
       [convId!]: [...(prev[convId!] ?? []), msg],
     }));
 
+    requestAnimationFrame(() => {
+      const el = threadRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    });
+
     // later:
-    // - POST /v1/chat or /v1/chat/stream with conversation_id
-    // - stream assistant message into messagesByConversation[convId]
-    // - update conversation title based on first user message
+    // POST /v1/chat or /v1/chat/stream with conversation_id
   }
 
   const activeMessages =
@@ -176,38 +231,47 @@ export function ChatShell() {
             title={activeTitle}
             participants={participants}
             onOpenSidebar={() => setSidebarOpen(true)}
-            onNewConversation={createConversationLocal} // mobile: show New on topbar
+            onNewConversation={createConversationLocal}
           />
 
-          {/* MAIN */}
-          <main className="min-w-0 flex-1 overflow-y-auto px-4 py-6 md:px-6">
-            <div className="mx-auto w-full max-w-3xl">
-              {!activeConversationId ? (
+          {!activeConversationId ? (
+            <main className="min-w-0 flex-1 overflow-y-auto px-4 py-6 md:px-6">
+              <div className="mx-auto w-full max-w-3xl">
                 <WelcomeComposer
                   userName={me?.user_name || me?.email || "there"}
                   loadingConvs={loadingConvs}
                   conversationCount={conversations.length}
                   onSend={onSend}
                 />
-              ) : activeMessages.length === 0 ? (
-                <ConversationEmptyHint />
-              ) : (
-                <>
-                  <MessageList messages={activeMessages} />
-                  <div className="h-6" />
-                </>
-              )}
-            </div>
-          </main>
-
-          {/* Bottom composer only when inside a conversation */}
-          {activeConversationId ? (
-            <div className="border-t border-[color:var(--border-0)] bg-[color:var(--bg-0)] px-4 py-3 md:px-6">
-              <div className="mx-auto w-full max-w-3xl">
-                <Composer participants={participants} onSend={onSend} />
               </div>
-            </div>
-          ) : null}
+            </main>
+          ) : (
+            <>
+              <div
+                ref={threadRef}
+                className="min-h-0 flex-1 overflow-y-auto px-4 py-6 md:px-6"
+              >
+                <div className="mx-auto w-full max-w-3xl">
+                  {loadingMessagesFor === activeConversationId ? (
+                    <MessagesLoadingState />
+                  ) : activeMessages.length === 0 ? (
+                    <ConversationEmptyHint />
+                  ) : (
+                    <>
+                      <MessageList messages={activeMessages} />
+                      <div className="h-6" />
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <div className="border-t border-[color:var(--border-0)] bg-[color:var(--bg-0)] px-4 py-3 md:px-6">
+                <div className="mx-auto w-full max-w-3xl">
+                  <Composer participants={participants} onSend={onSend} />
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -223,16 +287,16 @@ function WelcomeComposer(props: {
   return (
     <div className="pt-10 md:pt-14">
       <div className="mx-auto max-w-2xl">
-        <div className="rounded-[var(--radius-lg)] border border-[color:var(--border-0)] bg-[color:var(--bg-1)]/60 backdrop-blur-[6px] p-7">
+        <div className="rounded-[var(--radius-lg)] border border-[color:var(--border-0)] bg-[color:var(--bg-1)]/60 p-7 backdrop-blur-[6px]">
           <div className="text-xs uppercase tracking-[0.14em] text-[color:var(--text-2)]">
             RHEA Index
           </div>
 
           <div className="mt-2 text-[22px] font-medium text-[color:var(--text-0)]">
-            Welcome, <span className="text-[color:var(--text-0)]">{props.userName}</span>.
+            Welcome, <span>{props.userName}</span>.
           </div>
 
-          <div className="mt-2 text-sm text-[color:var(--text-1)] max-w-[68ch]">
+          <div className="mt-2 max-w-[68ch] text-sm text-[color:var(--text-1)]">
             What are we learning today? Ask a question, paste notes, or start a thread.
             RHEA keeps your thinking organized — conversations that become a notebook.
           </div>
@@ -245,19 +309,46 @@ function WelcomeComposer(props: {
               : "No conversations yet — start with a prompt below."}
           </div>
 
-          {/* Centered composer (unique vs ChatGPT/Gemini: glass card + tighter) */}
-          <div className="mt-6">
-            <div className="rounded-[var(--radius-lg)] border border-[color:var(--border-0)] bg-[color:var(--bg-0)]/55 backdrop-blur-[10px] p-3">
-              <Composer participants={[]} onSend={props.onSend} />
-            </div>
+          <div className="mt-6 rounded-[var(--radius-lg)] border border-[color:var(--border-0)] bg-[color:var(--bg-0)]/55 p-3 backdrop-blur-[10px]">
+            <Composer participants={[]} onSend={props.onSend} />
           </div>
 
           <div className="mt-4 grid gap-2 sm:grid-cols-2">
-            <Hint title="Try a build question" text="“Explain RAG like I’m implementing it in Go.”" />
-            <Hint title="Try a learning loop" text="“Ask me 3 questions to test my understanding of X.”" />
+            <Hint
+              title="Try a build question"
+              text="“Explain RAG like I’m implementing it in Go.”"
+            />
+            <Hint
+              title="Try a learning loop"
+              text="“Ask me 3 questions to test my understanding of X.”"
+            />
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function MessagesLoadingState() {
+  return (
+    <div className="space-y-3">
+      <SkeletonMessage />
+      <SkeletonMessage wide />
+      <SkeletonMessage />
+    </div>
+  );
+}
+
+function SkeletonMessage({ wide }: { wide?: boolean }) {
+  return (
+    <div className="rounded-[var(--radius-lg)] border border-[color:var(--border-0)] bg-[color:var(--bg-1)] p-4">
+      <div className="mb-3 h-3 w-20 rounded bg-[color:var(--bg-3)]" />
+      <div
+        className={`h-3 rounded bg-[color:var(--bg-3)] ${
+          wide ? "w-[90%]" : "w-[70%]"
+        }`}
+      />
+      <div className="mt-2 h-3 w-[55%] rounded bg-[color:var(--bg-3)]" />
     </div>
   );
 }
@@ -281,8 +372,8 @@ function ConversationEmptyHint() {
         Start the thread
       </div>
       <div className="mt-2 text-sm text-[color:var(--text-1)]">
-        Ask something, paste notes, or @mention collaborators later. Your first message can become
-        the title automatically once we wire the backend.
+        Ask something, paste notes, or continue building your thinking here. Older messages will be
+        paginated upward once we add infinite scroll.
       </div>
     </div>
   );

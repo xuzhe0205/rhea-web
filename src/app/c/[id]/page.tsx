@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { ChatShell } from "@/components/shell/ChatShell";
 
-export default function HomePage() {
+export default function ConversationPage() {
   const router = useRouter();
   const { state } = useAuth();
 

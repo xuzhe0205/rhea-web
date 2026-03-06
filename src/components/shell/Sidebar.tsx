@@ -77,7 +77,6 @@ export function Sidebar(props: {
               )}
             </div>
 
-            {/* New conversation button under the list */}
             <div className="mt-2">
               <ActionRowButton onClick={props.onCreateConversation}>
                 <PlusIcon />
@@ -87,7 +86,6 @@ export function Sidebar(props: {
 
             <div className="h-4" />
 
-            {/* Projects parked */}
             <SectionHeader label="Projects" soon />
             <div className="px-2 py-2 text-xs text-[color:var(--text-2)]">
               Coming soon.
@@ -131,7 +129,7 @@ export function Sidebar(props: {
 
 function SectionHeader({ label, soon }: { label: string; soon?: boolean }) {
   return (
-    <div className="px-2 pb-1 pt-3 flex items-center justify-between">
+    <div className="flex items-center justify-between px-2 pb-1 pt-3">
       <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-[color:var(--text-2)]">
         {label}
       </div>
@@ -151,12 +149,15 @@ function NavItem(props: {
   onClick?: () => void;
 }) {
   const disabled = !!props.disabled;
+
   return (
     <button
       className={[
         "relative flex w-full items-center rounded-[var(--radius-md)] px-3 py-2 text-left text-sm transition",
         "text-[color:var(--text-0)]",
-        disabled ? "opacity-45 cursor-not-allowed" : "hover:bg-[color:var(--bg-3)] cursor-pointer",
+        disabled
+          ? "cursor-not-allowed opacity-45"
+          : "cursor-pointer hover:bg-[color:var(--bg-3)]",
         props.active ? "bg-[color:var(--bg-2)]" : "",
       ].join(" ")}
       type="button"
@@ -178,7 +179,7 @@ function ActionRowButton(props: {
     <button
       type="button"
       onClick={props.onClick}
-      className="inline-flex w-full items-center gap-2 rounded-[var(--radius-md)] px-3 py-2 text-sm text-[color:var(--text-1)] hover:bg-[color:var(--bg-3)] hover:text-[color:var(--text-0)] transition cursor-pointer"
+      className="inline-flex w-full cursor-pointer items-center gap-2 rounded-[var(--radius-md)] px-3 py-2 text-sm text-[color:var(--text-1)] transition hover:bg-[color:var(--bg-3)] hover:text-[color:var(--text-0)]"
     >
       {props.children}
     </button>
