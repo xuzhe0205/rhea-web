@@ -9,6 +9,7 @@ import { Composer } from "@/components/chat/Composer";
 import { useAuth } from "@/context/AuthContext";
 import { listConversations } from "@/lib/conversations";
 import { listConversationMessages } from "@/lib/messages";
+import { startChatStream } from "@/lib/chat-stream";
 
 type Participant = { id: string; name: string };
 
@@ -17,6 +18,7 @@ type Msg = {
   role: "user" | "assistant";
   content: string;
   createdAt?: string;
+  status?: "streaming" | "done" | "error";
 };
 
 type Conversation = {
@@ -39,11 +41,23 @@ function normalizeMessage(m: any): Msg {
     role: m.role === "assistant" ? "assistant" : "user",
     content: m.content || "",
     createdAt: m.created_at || m.createdAt,
+    status: "done",
   };
 }
 
 function sortMessagesAsc(xs: Msg[]) {
   return [...xs].sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""));
+}
+
+function mapConversations(rows: any[]): Conversation[] {
+  const mapped: Conversation[] = (rows ?? []).map((c: any) => ({
+    id: c.id,
+    title: normalizeConversationTitle(c),
+    updatedAt: normalizeUpdatedAt(c),
+  }));
+
+  mapped.sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
+  return mapped;
 }
 
 export function ChatShell() {
@@ -61,44 +75,29 @@ export function ChatShell() {
   const [messagesByConversation, setMessagesByConversation] = useState<
     Record<string, Msg[]>
   >({});
+  const [pendingMessages, setPendingMessages] = useState<Msg[]>([]);
   const [loadingMessagesFor, setLoadingMessagesFor] = useState<string | null>(null);
+  const [streamingConversationId, setStreamingConversationId] = useState<string | null>(
+    null,
+  );
 
   const threadRef = useRef<HTMLDivElement | null>(null);
 
-  const participants: Participant[] = useMemo(() => [{ id: "me", name: "You" }], []);
+  const participants: Participant[] = useMemo(
+    () => [
+      { id: "me", name: "You" },
+      { id: "rhea", name: "RHEA" },
+    ],
+    [],
+  );
 
   const activeConversationId =
     typeof params?.id === "string" ? params.id : null;
 
   useEffect(() => {
     if (!token) return;
-    let alive = true;
-
-    setLoadingConvs(true);
-    listConversations(token)
-      .then((rows) => {
-        if (!alive) return;
-
-        const mapped: Conversation[] = (rows ?? []).map((c: any) => ({
-          id: c.id,
-          title: normalizeConversationTitle(c),
-          updatedAt: normalizeUpdatedAt(c),
-        }));
-
-        mapped.sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
-        setConversations(mapped);
-      })
-      .catch(() => {
-        if (!alive) return;
-        setConversations([]);
-      })
-      .finally(() => {
-        if (alive) setLoadingConvs(false);
-      });
-
-    return () => {
-      alive = false;
-    };
+    void refreshConversations();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   useEffect(() => {
@@ -108,6 +107,30 @@ export function ChatShell() {
     void loadConversationMessages(activeConversationId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeConversationId, token]);
+
+  useEffect(() => {
+    requestAnimationFrame(() => {
+      const el = threadRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    });
+  }, [activeConversationId, messagesByConversation, pendingMessages]);
+
+  async function refreshConversations() {
+    if (!token) return [];
+
+    setLoadingConvs(true);
+    try {
+      const rows = await listConversations(token);
+      const mapped = mapConversations(rows ?? []);
+      setConversations(mapped);
+      return mapped;
+    } catch {
+      setConversations([]);
+      return [];
+    } finally {
+      setLoadingConvs(false);
+    }
+  }
 
   async function loadConversationMessages(conversationId: string) {
     if (!token) return;
@@ -122,13 +145,6 @@ export function ChatShell() {
         ...prev,
         [conversationId]: mapped,
       }));
-
-      requestAnimationFrame(() => {
-        const el = threadRef.current;
-        if (el) {
-          el.scrollTop = el.scrollHeight;
-        }
-      });
     } catch {
       setMessagesByConversation((prev) => ({
         ...prev,
@@ -140,75 +156,265 @@ export function ChatShell() {
   }
 
   function onSelectConversation(id: string) {
+    if (streamingConversationId) return;
     router.push(`/c/${id}`);
     setSidebarOpen(false);
   }
 
   function createConversationLocal() {
-    const id = crypto.randomUUID();
-    const title = "New conversation";
+    if (streamingConversationId) return;
 
-    setConversations((prev) => [
-      { id, title, updatedAt: new Date().toISOString() },
-      ...prev,
-    ]);
-
-    setMessagesByConversation((prev) => ({
-      ...prev,
-      [id]: [],
-    }));
-
-    router.push(`/c/${id}`);
+    setPendingMessages([]);
+    router.push("/");
     setSidebarOpen(false);
   }
 
-  function onSend(text: string) {
+  async function onSend(text: string) {
     const trimmed = text.trim();
-    if (!trimmed) return;
+    if (!trimmed || !token) return;
+    if (streamingConversationId) return;
 
-    let convId = activeConversationId;
+    const userMessageId = crypto.randomUUID();
+    const assistantMessageId = crypto.randomUUID();
+    const nowIso = new Date().toISOString();
 
-    if (!convId) {
-      const id = crypto.randomUUID();
-      const title = "New conversation";
+    const isNewConversation = !activeConversationId;
+    const existingConversationIds = new Set(conversations.map((c) => c.id));
 
-      setConversations((prev) => [
-        { id, title, updatedAt: new Date().toISOString() },
+    if (isNewConversation) {
+      setPendingMessages((prev) => [
         ...prev,
+        {
+          id: userMessageId,
+          role: "user",
+          content: trimmed,
+          createdAt: nowIso,
+          status: "done",
+        },
+        {
+          id: assistantMessageId,
+          role: "assistant",
+          content: "",
+          createdAt: new Date().toISOString(),
+          status: "streaming",
+        },
       ]);
+    } else {
+      setStreamingConversationId(activeConversationId);
 
-      setMessagesByConversation((prev) => ({
-        ...prev,
-        [id]: [],
-      }));
-
-      router.push(`/c/${id}`);
-      convId = id;
+      setMessagesByConversation((prev) => {
+        const current = prev[activeConversationId] ?? [];
+        return {
+          ...prev,
+          [activeConversationId]: [
+            ...current,
+            {
+              id: userMessageId,
+              role: "user",
+              content: trimmed,
+              createdAt: nowIso,
+              status: "done",
+            },
+            {
+              id: assistantMessageId,
+              role: "assistant",
+              content: "",
+              createdAt: new Date().toISOString(),
+              status: "streaming",
+            },
+          ],
+        };
+      });
     }
 
-    const msg: Msg = {
-      id: crypto.randomUUID(),
-      role: "user",
-      content: trimmed,
-      createdAt: new Date().toISOString(),
-    };
+    let resolvedConversationId: string | undefined;
 
-    setMessagesByConversation((prev) => ({
-      ...prev,
-      [convId!]: [...(prev[convId!] ?? []), msg],
-    }));
+    try {
+      await startChatStream({
+        token,
+        body: isNewConversation
+          ? { message: trimmed }
+          : { message: trimmed, conversation_id: activeConversationId! },
+        onEvent: (event) => {
+          if (event.type === "meta" && event.conversationId) {
+            resolvedConversationId = event.conversationId;
 
-    requestAnimationFrame(() => {
-      const el = threadRef.current;
-      if (el) el.scrollTop = el.scrollHeight;
-    });
+            if (isNewConversation) {
+              setStreamingConversationId(event.conversationId);
+              router.replace(`/c/${event.conversationId}`);
+            }
 
-    // later:
-    // POST /v1/chat or /v1/chat/stream with conversation_id
+            return;
+          }
+
+          if (event.type === "delta") {
+            if (isNewConversation) {
+              setPendingMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantMessageId
+                    ? {
+                        ...m,
+                        content: m.content + event.text,
+                        status: "streaming",
+                      }
+                    : m,
+                ),
+              );
+            } else {
+              setMessagesByConversation((prev) => {
+                const current = prev[activeConversationId!] ?? [];
+                return {
+                  ...prev,
+                  [activeConversationId!]: current.map((m) =>
+                    m.id === assistantMessageId
+                      ? {
+                          ...m,
+                          content: m.content + event.text,
+                          status: "streaming",
+                        }
+                      : m,
+                  ),
+                };
+              });
+            }
+            return;
+          }
+
+          if (event.type === "error") {
+            if (isNewConversation) {
+              setPendingMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantMessageId
+                    ? {
+                        ...m,
+                        content:
+                          m.content ||
+                          "Sorry — something went wrong while streaming the response.",
+                        status: "error",
+                      }
+                    : m,
+                ),
+              );
+            } else {
+              setMessagesByConversation((prev) => {
+                const current = prev[activeConversationId!] ?? [];
+                return {
+                  ...prev,
+                  [activeConversationId!]: current.map((m) =>
+                    m.id === assistantMessageId
+                      ? {
+                          ...m,
+                          content:
+                            m.content ||
+                            "Sorry — something went wrong while streaming the response.",
+                          status: "error",
+                        }
+                      : m,
+                  ),
+                };
+              });
+            }
+            return;
+          }
+
+          if (event.type === "done") {
+            if (isNewConversation) {
+              setPendingMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantMessageId ? { ...m, status: "done" } : m,
+                ),
+              );
+            } else {
+              setMessagesByConversation((prev) => {
+                const current = prev[activeConversationId!] ?? [];
+                return {
+                  ...prev,
+                  [activeConversationId!]: current.map((m) =>
+                    m.id === assistantMessageId ? { ...m, status: "done" } : m,
+                  ),
+                };
+              });
+            }
+          }
+        },
+      });
+
+      const refreshed = await refreshConversations();
+
+      if (isNewConversation) {
+        let realConversationId = resolvedConversationId;
+
+        if (!realConversationId) {
+          const created = refreshed.find((c) => !existingConversationIds.has(c.id));
+          realConversationId = created?.id;
+        }
+
+        if (realConversationId) {
+          const finalConversationId = realConversationId;
+          const finalPendingMessages = pendingMessages.length
+            ? pendingMessages
+            : undefined;
+
+          setMessagesByConversation((prev) => {
+            const alreadyExisting = prev[finalConversationId] ?? [];
+            const pending = finalPendingMessages ?? [];
+            return {
+              ...prev,
+              [finalConversationId]:
+                alreadyExisting.length > 0 ? alreadyExisting : pending,
+            };
+          });
+
+          setPendingMessages([]);
+          router.replace(`/c/${finalConversationId}`);
+          setStreamingConversationId(finalConversationId);
+        }
+      }
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to send message.";
+
+      if (isNewConversation) {
+        setPendingMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantMessageId
+              ? {
+                  ...m,
+                  content: message,
+                  status: "error",
+                }
+              : m,
+          ),
+        );
+      } else {
+        setMessagesByConversation((prev) => {
+          const current = prev[activeConversationId!] ?? [];
+          return {
+            ...prev,
+            [activeConversationId!]: current.map((m) =>
+              m.id === assistantMessageId
+                ? {
+                    ...m,
+                    content: message,
+                    status: "error",
+                  }
+                : m,
+            ),
+          };
+        });
+      }
+    } finally {
+      if (!isNewConversation || resolvedConversationId) {
+        setStreamingConversationId((curr) => curr);
+      } else {
+        setStreamingConversationId(null);
+      }
+    }
   }
 
-  const activeMessages =
-    activeConversationId ? messagesByConversation[activeConversationId] ?? [] : [];
+  const activeMessages = activeConversationId
+    ? messagesByConversation[activeConversationId] ?? []
+    : pendingMessages;
 
   const activeTitle = activeConversationId
     ? conversations.find((c) => c.id === activeConversationId)?.title ?? "Conversation"
@@ -234,16 +440,15 @@ export function ChatShell() {
             onNewConversation={createConversationLocal}
           />
 
-          {!activeConversationId ? (
-            <main className="min-w-0 flex-1 overflow-y-auto px-4 py-6 md:px-6">
-              <div className="mx-auto w-full max-w-3xl">
-                <WelcomeComposer
-                  userName={me?.user_name || me?.email || "there"}
-                  loadingConvs={loadingConvs}
-                  conversationCount={conversations.length}
-                  onSend={onSend}
-                />
-              </div>
+          {!activeConversationId && pendingMessages.length === 0 ? (
+            <main className="flex flex-1 items-center justify-center px-4 md:px-6">
+                <div className="w-full max-w-3xl">
+                    <WelcomeComposer
+                    userName={me?.user_name || me?.email || "there"}
+                    onSend={onSend}
+                    disabled={!!streamingConversationId}
+                    />
+                </div>
             </main>
           ) : (
             <>
@@ -252,7 +457,9 @@ export function ChatShell() {
                 className="min-h-0 flex-1 overflow-y-auto px-4 py-6 md:px-6"
               >
                 <div className="mx-auto w-full max-w-3xl">
-                  {loadingMessagesFor === activeConversationId ? (
+                  {activeConversationId &&
+                  loadingMessagesFor === activeConversationId &&
+                  activeMessages.length === 0 ? (
                     <MessagesLoadingState />
                   ) : activeMessages.length === 0 ? (
                     <ConversationEmptyHint />
@@ -267,7 +474,11 @@ export function ChatShell() {
 
               <div className="border-t border-[color:var(--border-0)] bg-[color:var(--bg-0)] px-4 py-3 md:px-6">
                 <div className="mx-auto w-full max-w-3xl">
-                  <Composer participants={participants} onSend={onSend} />
+                  <Composer
+                    participants={participants}
+                    onSend={onSend}
+                    disabled={!!streamingConversationId && !activeConversationId}
+                  />
                 </div>
               </div>
             </>
@@ -280,50 +491,37 @@ export function ChatShell() {
 
 function WelcomeComposer(props: {
   userName: string;
-  loadingConvs: boolean;
-  conversationCount: number;
   onSend: (text: string) => void;
+  disabled?: boolean;
 }) {
   return (
-    <div className="pt-10 md:pt-14">
-      <div className="mx-auto max-w-2xl">
-        <div className="rounded-[var(--radius-lg)] border border-[color:var(--border-0)] bg-[color:var(--bg-1)]/60 p-7 backdrop-blur-[6px]">
-          <div className="text-xs uppercase tracking-[0.14em] text-[color:var(--text-2)]">
-            RHEA Index
-          </div>
+    <div className="text-center">
+      <div className="mx-auto max-w-3xl text-center">
 
-          <div className="mt-2 text-[22px] font-medium text-[color:var(--text-0)]">
-            Welcome, <span>{props.userName}</span>.
-          </div>
-
-          <div className="mt-2 max-w-[68ch] text-sm text-[color:var(--text-1)]">
-            What are we learning today? Ask a question, paste notes, or start a thread.
-            RHEA keeps your thinking organized — conversations that become a notebook.
-          </div>
-
-          <div className="mt-4 text-xs text-[color:var(--text-2)]">
-            {props.loadingConvs
-              ? "Syncing your conversations…"
-              : props.conversationCount > 0
-              ? `You have ${props.conversationCount} conversation${props.conversationCount > 1 ? "s" : ""} in the sidebar.`
-              : "No conversations yet — start with a prompt below."}
-          </div>
-
-          <div className="mt-6 rounded-[var(--radius-lg)] border border-[color:var(--border-0)] bg-[color:var(--bg-0)]/55 p-3 backdrop-blur-[10px]">
-            <Composer participants={[]} onSend={props.onSend} />
-          </div>
-
-          <div className="mt-4 grid gap-2 sm:grid-cols-2">
-            <Hint
-              title="Try a build question"
-              text="“Explain RAG like I’m implementing it in Go.”"
-            />
-            <Hint
-              title="Try a learning loop"
-              text="“Ask me 3 questions to test my understanding of X.”"
-            />
-          </div>
+        <div className="text-[20px] font-medium text-[color:var(--text-0)]">
+          What would you like to explore today?
         </div>
+
+        <div className="mt-6">
+          <Composer
+            participants={[]}
+            onSend={props.onSend}
+            disabled={props.disabled}
+          />
+        </div>
+
+        <div className="mt-6 grid gap-3 sm:grid-cols-2">
+          <Prompt
+            text="Explain RAG like I'm implementing it in Go."
+            onClick={() => props.onSend("Explain RAG like I'm implementing it in Go.")}
+          />
+
+          <Prompt
+            text="Ask me 3 questions to test my understanding."
+            onClick={() => props.onSend("Ask me 3 questions to test my understanding.")}
+          />
+        </div>
+
       </div>
     </div>
   );
@@ -353,12 +551,14 @@ function SkeletonMessage({ wide }: { wide?: boolean }) {
   );
 }
 
-function Hint(props: { title: string; text: string }) {
+function Prompt(props: { text: string; onClick: () => void }) {
   return (
-    <div className="rounded-[var(--radius-md)] border border-[color:var(--border-0)] bg-[color:var(--bg-0)]/50 p-3">
-      <div className="text-xs font-medium text-[color:var(--text-2)]">{props.title}</div>
-      <div className="mt-1 text-sm text-[color:var(--text-1)]">{props.text}</div>
-    </div>
+    <button
+      onClick={props.onClick}
+      className="w-full rounded-[var(--radius-md)] border border-[color:var(--border-0)] bg-[color:var(--bg-1)] px-4 py-3 text-left text-sm text-[color:var(--text-1)] hover:bg-[color:var(--bg-2)] transition"
+    >
+      {props.text}
+    </button>
   );
 }
 
@@ -372,8 +572,8 @@ function ConversationEmptyHint() {
         Start the thread
       </div>
       <div className="mt-2 text-sm text-[color:var(--text-1)]">
-        Ask something, paste notes, or continue building your thinking here. Older messages will be
-        paginated upward once we add infinite scroll.
+        Ask something, paste notes, or continue building your thinking here. Older
+        messages will be paginated upward once we add infinite scroll.
       </div>
     </div>
   );

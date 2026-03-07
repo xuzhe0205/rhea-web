@@ -5,6 +5,7 @@ type Msg = {
   role: "user" | "assistant";
   content: string;
   createdAt?: string;
+  status?: "streaming" | "done" | "error";
 };
 
 export function MessageList({ messages }: { messages: Msg[] }) {

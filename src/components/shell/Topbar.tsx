@@ -10,7 +10,7 @@ export function Topbar(props: {
   onOpenSidebar: () => void;
   onNewConversation?: () => void;
 }) {
-  const showParticipants = props.participants.length > 1;
+  const showParticipants = props.participants.length > 2;
 
   return (
     <header className="sticky top-0 z-10 border-b border-[color:var(--border-0)] bg-[color:var(--bg-0)]">

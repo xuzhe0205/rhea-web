@@ -8,14 +8,22 @@ type Msg = {
   role: "user" | "assistant";
   content: string;
   createdAt?: string;
+  status?: "streaming" | "done" | "error";
 };
 
 const USER_COLLAPSED_MAX_HEIGHT = 160;
 
 export function MessageBlock({ msg }: { msg: Msg }) {
   const isUser = msg.role === "user";
+  const isStreaming = msg.status === "streaming";
+  const isError = msg.status === "error";
+
   const containerAlign = isUser ? "justify-end" : "justify-start";
-  const blockBg = isUser ? "var(--bg-3)" : "var(--bg-2)";
+  const blockBg = isUser
+    ? "var(--bg-3)"
+    : isError
+    ? "rgba(120,30,30,0.22)"
+    : "var(--bg-2)";
 
   const contentRef = useRef<HTMLDivElement | null>(null);
   const [expanded, setExpanded] = useState(false);
@@ -44,13 +52,19 @@ export function MessageBlock({ msg }: { msg: Msg }) {
       <div className={isUser ? "w-full max-w-[760px]" : "w-full max-w-[720px]"}>
         <div
           className={[
-            "mb-1 text-[11px] font-medium uppercase tracking-[0.14em]",
+            "mb-1 flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.14em]",
             isUser
-              ? "text-right text-[color:var(--text-2)]"
+              ? "justify-end text-[color:var(--text-2)]"
               : "text-[color:var(--text-2)]",
           ].join(" ")}
         >
-          {isUser ? "You" : "RHEA"}
+          <span>{isUser ? "You" : "RHEA"}</span>
+          {!isUser && isStreaming ? (
+            <span className="inline-flex items-center gap-1 normal-case tracking-normal text-[11px] text-[color:var(--text-2)]">
+              <span className="h-1.5 w-1.5 rounded-full bg-[color:var(--accent)] animate-pulse" />
+              responding
+            </span>
+          ) : null}
         </div>
 
         <div
@@ -67,9 +81,7 @@ export function MessageBlock({ msg }: { msg: Msg }) {
             />
           ) : null}
 
-          <div
-            className={isUser && isOverflowing && !expanded ? "relative" : ""}
-          >
+          <div className={isUser && isOverflowing && !expanded ? "relative" : ""}>
             <div
               ref={contentRef}
               className="overflow-hidden"
@@ -79,13 +91,23 @@ export function MessageBlock({ msg }: { msg: Msg }) {
                   : undefined
               }
             >
-              <MarkdownMessage content={msg.content} />
+              {msg.content ? (
+                <MarkdownMessage content={msg.content} />
+              ) : !isUser && isStreaming ? (
+                <StreamingPlaceholder />
+              ) : null}
             </div>
 
             {isUser && isOverflowing && !expanded ? (
               <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 rounded-b-[var(--radius-lg)] bg-gradient-to-t from-[color:var(--bg-3)] to-transparent" />
             ) : null}
           </div>
+
+          {!isUser && isStreaming && msg.content ? (
+            <div className="mt-2">
+              <BlinkingCaret />
+            </div>
+          ) : null}
 
           {isUser && isOverflowing ? (
             <div className="mt-3 flex justify-end">
@@ -103,6 +125,24 @@ export function MessageBlock({ msg }: { msg: Msg }) {
         </div>
       </div>
     </div>
+  );
+}
+
+function StreamingPlaceholder() {
+  return (
+    <div className="flex items-center gap-2 text-sm text-[color:var(--text-2)]">
+      <span className="h-2 w-2 rounded-full bg-[color:var(--accent)] animate-pulse" />
+      <span>Thinking…</span>
+    </div>
+  );
+}
+
+function BlinkingCaret() {
+  return (
+    <span
+      className="inline-block h-4 w-[7px] rounded-[2px] bg-[color:var(--accent)] animate-pulse"
+      aria-hidden="true"
+    />
   );
 }
 

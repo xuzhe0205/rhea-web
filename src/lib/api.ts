@@ -24,13 +24,11 @@ export async function apiFetch<T>(
   });
 
   if (!res.ok) {
-    // Try to read server-provided error text (your Go handlers return plain text on error)
     const text = await res.text().catch(() => "");
     const msg = text || `${res.status} ${res.statusText}`;
     throw new Error(msg);
   }
 
-  // Some endpoints may return empty body; handle safely
   const contentType = res.headers.get("content-type") || "";
   if (!contentType.includes("application/json")) {
     return undefined as unknown as T;

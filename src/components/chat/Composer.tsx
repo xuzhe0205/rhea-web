@@ -7,9 +7,11 @@ type Participant = { id: string; name: string };
 export function Composer({
   participants,
   onSend,
+  disabled = false,
 }: {
   participants: Participant[];
   onSend: (text: string) => void;
+  disabled?: boolean;
 }) {
   const [value, setValue] = useState("");
   const [open, setOpen] = useState(false);
@@ -53,6 +55,14 @@ export function Composer({
     });
   }
 
+  function submit() {
+    const trimmed = value.trim();
+    if (!trimmed || disabled) return;
+    onSend(trimmed);
+    setValue("");
+    setOpen(false);
+  }
+
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (open) {
       if (e.key === "ArrowDown") {
@@ -74,9 +84,7 @@ export function Composer({
 
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      onSend(value);
-      setValue("");
-      return;
+      submit();
     }
   }
 
@@ -97,7 +105,7 @@ export function Composer({
 
   return (
     <div className="relative">
-      {open ? (
+      {open && !disabled ? (
         <div className="absolute bottom-[calc(100%+10px)] left-0 w-full rounded-[var(--radius-lg)] border border-[color:var(--border-0)] bg-[color:var(--bg-2)] p-1">
           <div className="px-2 py-2 text-[11px] font-medium uppercase tracking-[0.14em] text-[color:var(--text-2)]">
             Mention
@@ -115,14 +123,12 @@ export function Composer({
               ].join(" ")}
               onMouseEnter={() => setActiveIdx(idx)}
               onMouseDown={(e) => {
-                e.preventDefault(); // prevent blur
+                e.preventDefault();
                 insertMention(opt.label);
               }}
             >
               <span className="font-medium">{opt.label}</span>
-              <span className="text-xs text-[color:var(--text-2)]">
-                {opt.name}
-              </span>
+              <span className="text-xs text-[color:var(--text-2)]">{opt.name}</span>
             </button>
           ))}
         </div>
@@ -131,20 +137,19 @@ export function Composer({
       <div className="flex items-end gap-2 rounded-[var(--radius-lg)] border border-[color:var(--border-0)] bg-[color:var(--bg-1)] p-2">
         <textarea
           ref={inputRef}
-          className="rhea-focus min-h-[44px] max-h-[160px] flex-1 resize-none rounded-[var(--radius-md)] border border-transparent bg-transparent px-3 py-2 text-[14px] leading-6 text-[color:var(--text-0)] placeholder:text-[color:var(--text-2)]"
-          placeholder="Ask RHEA… (type @ to mention)"
+          disabled={disabled}
+          className="rhea-focus min-h-[44px] max-h-[160px] flex-1 resize-none rounded-[var(--radius-md)] border border-transparent bg-transparent px-3 py-2 text-[14px] leading-6 text-[color:var(--text-0)] placeholder:text-[color:var(--text-2)] disabled:cursor-not-allowed disabled:opacity-60"
+          placeholder={disabled ? "RHEA is responding…" : "Ask RHEA… (type @ to mention)"}
           value={value}
           onChange={(e) => handleChange(e.target.value)}
           onKeyDown={handleKeyDown}
         />
 
         <button
-          className="rhea-focus inline-flex h-10 items-center justify-center rounded-[var(--radius-md)] border border-[color:var(--border-0)] bg-[color:var(--bg-2)] px-3 text-sm font-medium text-[color:var(--text-0)] hover:bg-[color:var(--bg-3)] transition"
+          className="rhea-focus inline-flex h-10 items-center justify-center rounded-[var(--radius-md)] border border-[color:var(--border-0)] bg-[color:var(--bg-2)] px-3 text-sm font-medium text-[color:var(--text-0)] transition hover:bg-[color:var(--bg-3)] disabled:cursor-not-allowed disabled:opacity-55"
           type="button"
-          onClick={() => {
-            onSend(value);
-            setValue("");
-          }}
+          onClick={submit}
+          disabled={disabled || !value.trim()}
           aria-label="Send"
           title="Send"
         >
@@ -153,7 +158,7 @@ export function Composer({
       </div>
 
       <div className="mt-2 flex items-center justify-between text-xs text-[color:var(--text-2)]">
-        <span>Enter to send • Shift+Enter for newline</span>
+        <span>{disabled ? "Streaming response…" : "Enter to send • Shift+Enter for newline"}</span>
         <span className="hidden sm:inline">RHEA Index</span>
       </div>
     </div>
