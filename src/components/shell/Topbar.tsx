@@ -5,7 +5,6 @@ import { ParticipantsBadges } from "@/components/shell/ParticipantsBadges";
 type Participant = { id: string; name: string };
 
 export function Topbar(props: {
-  visible?: boolean;
   title: string;
   participants: Participant[];
   onOpenSidebar: () => void;
@@ -14,12 +13,7 @@ export function Topbar(props: {
   const showParticipants = props.participants.length > 2;
 
   return (
-    <header
-        className={[
-            "sticky top-0 z-10 border-b border-[color:var(--border-0)] bg-[color:var(--bg-0)]/95 backdrop-blur-md transition-transform duration-200 will-change-transform",
-            props.visible === false ? "-translate-y-full" : "translate-y-0",
-        ].join(" ")}
-        >
+    <header className="sticky top-0 z-10 border-b border-white/10 bg-[color:var(--bg-0)] backdrop-blur-md">
       <div className="flex h-14 items-center justify-between px-4 md:px-6">
         {/* Left: burger on mobile + title */}
         <div className="flex min-w-0 items-center gap-3">

@@ -18,13 +18,6 @@ export function MessageBlock({ msg }: { msg: Msg }) {
   const isStreaming = msg.status === "streaming";
   const isError = msg.status === "error";
 
-  const containerAlign = isUser ? "justify-end" : "justify-start";
-  const blockBg = isUser
-    ? "var(--bg-3)"
-    : isError
-    ? "rgba(120,30,30,0.22)"
-    : "var(--bg-2)";
-
   const contentRef = useRef<HTMLDivElement | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [isOverflowing, setIsOverflowing] = useState(false);
@@ -48,19 +41,26 @@ export function MessageBlock({ msg }: { msg: Msg }) {
   }, [isUser, msg.content]);
 
   return (
-    <div className={`flex ${containerAlign}`}>
-      <div className={isUser ? "w-full max-w-[760px]" : "w-full max-w-[720px]"}>
+    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+      <div
+        className={
+          isUser
+            ? "ml-auto w-fit min-w-[180px] max-w-[88%] md:min-w-[220px] md:max-w-[620px]"
+            : "w-full max-w-[96%] md:max-w-[820px]"
+        }
+      >
         <div
           className={[
-            "mb-1 flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.14em]",
+            "mb-2 flex items-center text-[11px] font-medium uppercase tracking-[0.14em]",
             isUser
               ? "justify-end text-[color:var(--text-2)]"
-              : "text-[color:var(--text-2)]",
+              : "justify-start text-[color:var(--accent)]/80",
           ].join(" ")}
         >
           <span>{isUser ? "You" : "RHEA"}</span>
+
           {!isUser && isStreaming ? (
-            <span className="inline-flex items-center gap-1 normal-case tracking-normal text-[11px] text-[color:var(--text-2)]">
+            <span className="ml-2 inline-flex items-center gap-1 normal-case tracking-normal text-[11px] text-[color:var(--text-2)]">
               <span className="h-1.5 w-1.5 rounded-full bg-[color:var(--accent)] animate-pulse" />
               responding
             </span>
@@ -69,14 +69,24 @@ export function MessageBlock({ msg }: { msg: Msg }) {
 
         <div
           className={[
-            "relative rounded-[var(--radius-lg)] border border-[color:var(--border-0)] px-4 py-3",
-            isUser ? "" : "pl-5",
+            "relative overflow-hidden border transition",
+            isUser
+              ? [
+                  "rounded-[24px] px-5 py-4",
+                  "border-white/8",
+                  "bg-[linear-gradient(180deg,rgba(30,38,58,0.92),rgba(25,31,47,0.96))]",
+                  "shadow-[0_1px_0_rgba(255,255,255,0.03)_inset]",
+                ].join(" ")
+              : [
+                  "rounded-[var(--radius-lg)] px-5 py-4 pl-6",
+                  isError ? "border-red-400/20" : "border-[color:var(--border-0)]",
+                  "bg-[color:var(--bg-2)]",
+                ].join(" "),
           ].join(" ")}
-          style={{ background: blockBg }}
         >
           {!isUser ? (
             <span
-              className="absolute left-0 top-3 bottom-3 w-[2px] rounded-full bg-[color:var(--accent)]"
+              className="absolute left-0 top-4 bottom-4 w-[3px] rounded-full bg-[color:var(--accent)]"
               aria-hidden="true"
             />
           ) : null}
@@ -84,7 +94,7 @@ export function MessageBlock({ msg }: { msg: Msg }) {
           <div className={isUser && isOverflowing && !expanded ? "relative" : ""}>
             <div
               ref={contentRef}
-              className="overflow-hidden"
+              className={`overflow-hidden break-words ${isUser ? "text-left" : "text-left"}`}
               style={
                 isUser && isOverflowing && !expanded
                   ? { maxHeight: `${USER_COLLAPSED_MAX_HEIGHT}px` }
@@ -99,7 +109,7 @@ export function MessageBlock({ msg }: { msg: Msg }) {
             </div>
 
             {isUser && isOverflowing && !expanded ? (
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 rounded-b-[var(--radius-lg)] bg-gradient-to-t from-[color:var(--bg-3)] to-transparent" />
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 rounded-b-[24px] bg-gradient-to-t from-[rgba(25,31,47,0.98)] to-transparent" />
             ) : null}
           </div>
 
