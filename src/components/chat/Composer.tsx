@@ -138,7 +138,7 @@ export function Composer({
         <textarea
           ref={inputRef}
           disabled={disabled}
-          className="rhea-focus min-h-[44px] max-h-[160px] flex-1 resize-none rounded-[var(--radius-md)] border border-transparent bg-transparent px-3 py-2 text-[14px] leading-6 text-[color:var(--text-0)] placeholder:text-[color:var(--text-2)] disabled:cursor-not-allowed disabled:opacity-60"
+          className="rhea-focus min-h-[44px] max-h-[160px] flex-1 resize-none rounded-[var(--radius-md)] border border-transparent bg-transparent px-3 py-2 text-[16px] leading-6 text-[color:var(--text-0)] placeholder:text-[color:var(--text-2)] disabled:cursor-not-allowed disabled:opacity-60"
           placeholder={disabled ? "RHEA is responding…" : "Ask RHEA… (type @ to mention)"}
           value={value}
           onChange={(e) => handleChange(e.target.value)}
