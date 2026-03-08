@@ -72,6 +72,10 @@ export function ChatShell() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loadingConvs, setLoadingConvs] = useState(false);
 
+  const [topbarVisible, setTopbarVisible] = useState(true);
+  const lastScrollTopRef = useRef(0);
+  const lastToggleScrollTopRef = useRef(0);
+
   const [messagesByConversation, setMessagesByConversation] = useState<
     Record<string, Msg[]>
   >({});
@@ -80,6 +84,15 @@ export function ChatShell() {
   const [streamingConversationId, setStreamingConversationId] = useState<string | null>(
     null,
   );
+
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
 
   const threadRef = useRef<HTMLDivElement | null>(null);
 
@@ -114,6 +127,12 @@ export function ChatShell() {
       if (el) el.scrollTop = el.scrollHeight;
     });
   }, [activeConversationId, messagesByConversation, pendingMessages]);
+
+  useEffect(() => {
+    setTopbarVisible(true);
+    lastScrollTopRef.current = 0;
+    lastToggleScrollTopRef.current = 0;
+  }, [activeConversationId]);
 
   async function refreshConversations() {
     if (!token) return [];
@@ -155,6 +174,45 @@ export function ChatShell() {
     }
   }
 
+  function handleThreadScroll(e: React.UIEvent<HTMLDivElement>) {
+    if (!isMobile) {
+      if (!topbarVisible) setTopbarVisible(true);
+      return;
+    }
+
+    const current = e.currentTarget.scrollTop;
+    const prev = lastScrollTopRef.current;
+    const delta = current - prev;
+
+    if (current <= 12) {
+      setTopbarVisible(true);
+      lastScrollTopRef.current = current;
+      lastToggleScrollTopRef.current = current;
+      return;
+    }
+
+    if (Math.abs(delta) < 2) {
+      lastScrollTopRef.current = current;
+      return;
+    }
+
+    const distanceSinceLastToggle = Math.abs(current - lastToggleScrollTopRef.current);
+
+    if (delta > 0) {
+      if (topbarVisible && distanceSinceLastToggle > 20) {
+        setTopbarVisible(false);
+        lastToggleScrollTopRef.current = current;
+      }
+    } else {
+      if (!topbarVisible && distanceSinceLastToggle > 12) {
+        setTopbarVisible(true);
+        lastToggleScrollTopRef.current = current;
+      }
+    }
+
+    lastScrollTopRef.current = current;
+  }
+
   function onSelectConversation(id: string) {
     if (streamingConversationId) return;
     router.push(`/c/${id}`);
@@ -165,6 +223,7 @@ export function ChatShell() {
     if (streamingConversationId) return;
 
     setPendingMessages([]);
+    setTopbarVisible(true);
     router.push("/");
     setSidebarOpen(false);
   }
@@ -404,9 +463,7 @@ export function ChatShell() {
         });
       }
     } finally {
-      if (!isNewConversation || resolvedConversationId) {
-        setStreamingConversationId((curr) => curr);
-      } else {
+      if (isNewConversation && !resolvedConversationId) {
         setStreamingConversationId(null);
       }
     }
@@ -421,7 +478,7 @@ export function ChatShell() {
     : "RHEA Index";
 
   return (
-    <div className="h-screen w-screen overflow-hidden">
+    <div className="h-[100dvh] w-screen overflow-hidden">
       <div className="flex h-full w-full">
         <Sidebar
           open={sidebarOpen}
@@ -432,8 +489,9 @@ export function ChatShell() {
           onCreateConversation={createConversationLocal}
         />
 
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <Topbar
+            visible={isMobile ? topbarVisible : true}
             title={activeTitle}
             participants={participants}
             onOpenSidebar={() => setSidebarOpen(true)}
@@ -442,18 +500,19 @@ export function ChatShell() {
 
           {!activeConversationId && pendingMessages.length === 0 ? (
             <main className="flex flex-1 items-center justify-center px-4 md:px-6">
-                <div className="w-full max-w-3xl">
-                    <WelcomeComposer
-                    userName={me?.user_name || me?.email || "there"}
-                    onSend={onSend}
-                    disabled={!!streamingConversationId}
-                    />
-                </div>
+              <div className="w-full max-w-3xl">
+                <WelcomeComposer
+                  userName={me?.user_name || me?.email || "there"}
+                  onSend={onSend}
+                  disabled={!!streamingConversationId}
+                />
+              </div>
             </main>
           ) : (
             <>
               <div
                 ref={threadRef}
+                onScroll={handleThreadScroll}
                 className="min-h-0 flex-1 overflow-y-auto px-4 py-6 md:px-6"
               >
                 <div className="mx-auto w-full max-w-3xl">
@@ -497,7 +556,6 @@ function WelcomeComposer(props: {
   return (
     <div className="text-center">
       <div className="mx-auto max-w-3xl text-center">
-
         <div className="text-[20px] font-medium text-[color:var(--text-0)]">
           What would you like to explore today?
         </div>
@@ -518,10 +576,11 @@ function WelcomeComposer(props: {
 
           <Prompt
             text="Ask me 3 questions to test my understanding."
-            onClick={() => props.onSend("Ask me 3 questions to test my understanding.")}
+            onClick={() =>
+              props.onSend("Ask me 3 questions to test my understanding.")
+            }
           />
         </div>
-
       </div>
     </div>
   );
@@ -555,7 +614,7 @@ function Prompt(props: { text: string; onClick: () => void }) {
   return (
     <button
       onClick={props.onClick}
-      className="w-full rounded-[var(--radius-md)] border border-[color:var(--border-0)] bg-[color:var(--bg-1)] px-4 py-3 text-left text-sm text-[color:var(--text-1)] hover:bg-[color:var(--bg-2)] transition"
+      className="w-full rounded-[var(--radius-md)] border border-[color:var(--border-0)] bg-[color:var(--bg-1)] px-4 py-3 text-left text-sm text-[color:var(--text-1)] transition hover:bg-[color:var(--bg-2)]"
     >
       {props.text}
     </button>
