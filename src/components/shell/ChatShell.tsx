@@ -169,10 +169,10 @@ export function ChatShell() {
     setSidebarOpen(false);
   }
 
-  async function onSend(text: string) {
+  async function onSend(text: string): Promise<boolean> {
     const trimmed = text.trim();
-    if (!trimmed || !token) return;
-    if (streamingConversationId) return;
+    if (!trimmed || !token) return false;
+    if (streamingConversationId) return false;
 
     const userMessageId = crypto.randomUUID();
     const assistantMessageId = crypto.randomUUID();
@@ -180,6 +180,10 @@ export function ChatShell() {
 
     const isNewConversation = !activeConversationId;
     const existingConversationIds = new Set(conversations.map((c) => c.id));
+
+    // Lock immediately so duplicate follow-up sends cannot sneak in.
+    const streamLockId = activeConversationId ?? "__pending__";
+    setStreamingConversationId(streamLockId);
 
     if (isNewConversation) {
       setPendingMessages((prev) => [
@@ -200,8 +204,6 @@ export function ChatShell() {
         },
       ]);
     } else {
-      setStreamingConversationId(activeConversationId);
-
       setMessagesByConversation((prev) => {
         const current = prev[activeConversationId] ?? [];
         return {
@@ -240,7 +242,6 @@ export function ChatShell() {
             resolvedConversationId = event.conversationId;
 
             if (isNewConversation) {
-              setStreamingConversationId(event.conversationId);
               router.replace(`/c/${event.conversationId}`);
             }
 
@@ -367,9 +368,10 @@ export function ChatShell() {
 
           setPendingMessages([]);
           router.replace(`/c/${finalConversationId}`);
-          setStreamingConversationId(finalConversationId);
         }
       }
+
+      return true;
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Failed to send message.";
@@ -403,10 +405,10 @@ export function ChatShell() {
           };
         });
       }
+
+      return false;
     } finally {
-      if (isNewConversation && !resolvedConversationId) {
-        setStreamingConversationId(null);
-      }
+      setStreamingConversationId(null);
     }
   }
 
@@ -436,7 +438,7 @@ export function ChatShell() {
             participants={participants}
             onOpenSidebar={() => setSidebarOpen(true)}
             onNewConversation={createConversationLocal}
-            />
+          />
 
           {!activeConversationId && pendingMessages.length === 0 ? (
             <main className="flex flex-1 items-center justify-center px-4 md:px-6">
@@ -475,7 +477,7 @@ export function ChatShell() {
                   <Composer
                     participants={participants}
                     onSend={onSend}
-                    disabled={!!streamingConversationId && !activeConversationId}
+                    disabled={!!streamingConversationId}
                   />
                 </div>
               </div>
@@ -489,7 +491,7 @@ export function ChatShell() {
 
 function WelcomeComposer(props: {
   userName: string;
-  onSend: (text: string) => void;
+  onSend: (text: string) => Promise<boolean>;
   disabled?: boolean;
 }) {
   return (
@@ -510,14 +512,16 @@ function WelcomeComposer(props: {
         <div className="mt-6 grid gap-3 sm:grid-cols-2">
           <Prompt
             text="Explain RAG like I'm implementing it in Go."
-            onClick={() => props.onSend("Explain RAG like I'm implementing it in Go.")}
+            onClick={() => {
+              void props.onSend("Explain RAG like I'm implementing it in Go.");
+            }}
           />
 
           <Prompt
             text="Ask me 3 questions to test my understanding."
-            onClick={() =>
-              props.onSend("Ask me 3 questions to test my understanding.")
-            }
+            onClick={() => {
+              void props.onSend("Ask me 3 questions to test my understanding.");
+            }}
           />
         </div>
       </div>

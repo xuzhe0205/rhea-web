@@ -10,7 +10,7 @@ export function Composer({
   disabled = false,
 }: {
   participants: Participant[];
-  onSend: (text: string) => void;
+  onSend: (text: string) => Promise<boolean>;
   disabled?: boolean;
 }) {
   const [value, setValue] = useState("");
@@ -55,12 +55,16 @@ export function Composer({
     });
   }
 
-  function submit() {
+  async function submit() {
     const trimmed = value.trim();
     if (!trimmed || disabled) return;
-    onSend(trimmed);
-    setValue("");
-    setOpen(false);
+
+    const started = await onSend(trimmed);
+
+    if (started) {
+        setValue("");
+        setOpen(false);
+    }
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
