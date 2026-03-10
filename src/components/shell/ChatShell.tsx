@@ -81,7 +81,12 @@ export function ChatShell() {
     null,
   );
 
+  const pendingMessagesRef = useRef<Msg[]>([]);
   const threadRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    pendingMessagesRef.current = pendingMessages;
+  }, [pendingMessages]);
 
   const participants: Participant[] = useMemo(
     () => [
@@ -104,9 +109,12 @@ export function ChatShell() {
     if (!activeConversationId) return;
     if (!token) return;
 
+    const existing = messagesByConversation[activeConversationId];
+    if (existing && existing.length > 0) return;
+
     void loadConversationMessages(activeConversationId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeConversationId, token]);
+  }, [activeConversationId, token, messagesByConversation]);
 
   useEffect(() => {
     requestAnimationFrame(() => {
@@ -181,7 +189,6 @@ export function ChatShell() {
     const isNewConversation = !activeConversationId;
     const existingConversationIds = new Set(conversations.map((c) => c.id));
 
-    // Lock immediately so duplicate follow-up sends cannot sneak in.
     const streamLockId = activeConversationId ?? "__pending__";
     setStreamingConversationId(streamLockId);
 
@@ -242,7 +249,17 @@ export function ChatShell() {
             resolvedConversationId = event.conversationId;
 
             if (isNewConversation) {
-              router.replace(`/c/${event.conversationId}`);
+              const realId = event.conversationId;
+
+              setMessagesByConversation((prev) => {
+                if (prev[realId]?.length) return prev;
+                return {
+                  ...prev,
+                  [realId]: pendingMessagesRef.current,
+                };
+              });
+
+              router.replace(`/c/${realId}`);
             }
 
             return;
@@ -261,6 +278,24 @@ export function ChatShell() {
                     : m,
                 ),
               );
+
+              if (resolvedConversationId) {
+                setMessagesByConversation((prev) => {
+                  const current = prev[resolvedConversationId!] ?? [];
+                  return {
+                    ...prev,
+                    [resolvedConversationId!]: current.map((m) =>
+                      m.id === assistantMessageId
+                        ? {
+                            ...m,
+                            content: m.content + event.text,
+                            status: "streaming",
+                          }
+                        : m,
+                    ),
+                  };
+                });
+              }
             } else {
               setMessagesByConversation((prev) => {
                 const current = prev[activeConversationId!] ?? [];
@@ -296,6 +331,26 @@ export function ChatShell() {
                     : m,
                 ),
               );
+
+              if (resolvedConversationId) {
+                setMessagesByConversation((prev) => {
+                  const current = prev[resolvedConversationId!] ?? [];
+                  return {
+                    ...prev,
+                    [resolvedConversationId!]: current.map((m) =>
+                      m.id === assistantMessageId
+                        ? {
+                            ...m,
+                            content:
+                              m.content ||
+                              "Sorry — something went wrong while streaming the response.",
+                            status: "error",
+                          }
+                        : m,
+                    ),
+                  };
+                });
+              }
             } else {
               setMessagesByConversation((prev) => {
                 const current = prev[activeConversationId!] ?? [];
@@ -325,6 +380,18 @@ export function ChatShell() {
                   m.id === assistantMessageId ? { ...m, status: "done" } : m,
                 ),
               );
+
+              if (resolvedConversationId) {
+                setMessagesByConversation((prev) => {
+                  const current = prev[resolvedConversationId!] ?? [];
+                  return {
+                    ...prev,
+                    [resolvedConversationId!]: current.map((m) =>
+                      m.id === assistantMessageId ? { ...m, status: "done" } : m,
+                    ),
+                  };
+                });
+              }
             } else {
               setMessagesByConversation((prev) => {
                 const current = prev[activeConversationId!] ?? [];
@@ -352,13 +419,10 @@ export function ChatShell() {
 
         if (realConversationId) {
           const finalConversationId = realConversationId;
-          const finalPendingMessages = pendingMessages.length
-            ? pendingMessages
-            : undefined;
 
           setMessagesByConversation((prev) => {
             const alreadyExisting = prev[finalConversationId] ?? [];
-            const pending = finalPendingMessages ?? [];
+            const pending = pendingMessagesRef.current ?? [];
             return {
               ...prev,
               [finalConversationId]:
@@ -388,6 +452,24 @@ export function ChatShell() {
               : m,
           ),
         );
+
+        if (resolvedConversationId) {
+          setMessagesByConversation((prev) => {
+            const current = prev[resolvedConversationId!] ?? [];
+            return {
+              ...prev,
+              [resolvedConversationId!]: current.map((m) =>
+                m.id === assistantMessageId
+                  ? {
+                      ...m,
+                      content: message,
+                      status: "error",
+                    }
+                  : m,
+              ),
+            };
+          });
+        }
       } else {
         setMessagesByConversation((prev) => {
           const current = prev[activeConversationId!] ?? [];
