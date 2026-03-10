@@ -40,6 +40,24 @@ function tryParseModelMetadata(text: string): string | null {
   return null;
 }
 
+/**
+ * Parse one SSE data line while preserving real content whitespace.
+ *
+ * SSE wire format is usually:
+ *   data: hello
+ *
+ * We want to remove:
+ *   - the "data:" prefix
+ *   - at most one protocol separator space after it
+ *
+ * But we must preserve any additional leading spaces because they are real content.
+ */
+function parseSseDataLine(line: string): string {
+  let value = line.slice("data:".length);
+  if (value.startsWith(" ")) value = value.slice(1);
+  return value;
+}
+
 export async function startChatStream({
   token,
   body,
@@ -135,7 +153,7 @@ export async function startChatStream({
         }
 
         if (line.startsWith("data:")) {
-          currentDataLines.push(line.slice("data:".length).trimStart());
+          currentDataLines.push(parseSseDataLine(line));
         }
       }
 
@@ -155,7 +173,7 @@ export async function startChatStream({
       if (line.startsWith("event:")) {
         currentEvent = line.slice("event:".length).trim();
       } else if (line.startsWith("data:")) {
-        currentDataLines.push(line.slice("data:".length).trimStart());
+        currentDataLines.push(parseSseDataLine(line));
       }
     }
 
