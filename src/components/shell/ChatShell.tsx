@@ -6,6 +6,7 @@ import { Sidebar } from "@/components/shell/Sidebar";
 import { Topbar } from "@/components/shell/Topbar";
 import { MessageList } from "@/components/chat/MessageList";
 import { Composer } from "@/components/chat/Composer";
+import { ModelBadge } from "@/components/chat/ModelBadge";
 import { useAuth } from "@/context/AuthContext";
 import { listConversations } from "@/lib/conversations";
 import { listConversationMessages } from "@/lib/messages";
@@ -81,12 +82,22 @@ export function ChatShell() {
     null,
   );
 
+  const [selectedModelByConversation, setSelectedModelByConversation] = useState<
+    Record<string, string>
+  >({});
+  const [pendingSelectedModel, setPendingSelectedModel] = useState<string | null>(null);
+
   const pendingMessagesRef = useRef<Msg[]>([]);
+  const pendingSelectedModelRef = useRef<string | null>(null);
   const threadRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     pendingMessagesRef.current = pendingMessages;
   }, [pendingMessages]);
+
+  useEffect(() => {
+    pendingSelectedModelRef.current = pendingSelectedModel;
+  }, [pendingSelectedModel]);
 
   const participants: Participant[] = useMemo(
     () => [
@@ -173,6 +184,7 @@ export function ChatShell() {
     if (streamingConversationId) return;
 
     setPendingMessages([]);
+    setPendingSelectedModel(null);
     router.push("/");
     setSidebarOpen(false);
   }
@@ -210,6 +222,7 @@ export function ChatShell() {
           status: "streaming",
         },
       ]);
+      setPendingSelectedModel(null);
     } else {
       setMessagesByConversation((prev) => {
         const current = prev[activeConversationId] ?? [];
@@ -259,7 +272,34 @@ export function ChatShell() {
                 };
               });
 
+              if (pendingSelectedModelRef.current) {
+                setSelectedModelByConversation((prev) => ({
+                  ...prev,
+                  [realId]: pendingSelectedModelRef.current!,
+                }));
+              }
+
               router.replace(`/c/${realId}`);
+            }
+
+            return;
+          }
+
+          if (event.type === "model") {
+            if (isNewConversation) {
+              setPendingSelectedModel(event.value);
+
+              if (resolvedConversationId) {
+                setSelectedModelByConversation((prev) => ({
+                  ...prev,
+                  [resolvedConversationId!]: event.value,
+                }));
+              }
+            } else {
+              setSelectedModelByConversation((prev) => ({
+                ...prev,
+                [activeConversationId!]: event.value,
+              }));
             }
 
             return;
@@ -430,7 +470,15 @@ export function ChatShell() {
             };
           });
 
+          if (pendingSelectedModelRef.current) {
+            setSelectedModelByConversation((prev) => ({
+              ...prev,
+              [finalConversationId]: pendingSelectedModelRef.current!,
+            }));
+          }
+
           setPendingMessages([]);
+          setPendingSelectedModel(null);
           router.replace(`/c/${finalConversationId}`);
         }
       }
@@ -502,6 +550,10 @@ export function ChatShell() {
     ? conversations.find((c) => c.id === activeConversationId)?.title ?? "Conversation"
     : "RHEA Index";
 
+  const activeSelectedModel = activeConversationId
+    ? selectedModelByConversation[activeConversationId] ?? null
+    : pendingSelectedModel;
+
   return (
     <div className="h-[100dvh] w-screen overflow-hidden">
       <div className="flex h-full w-full">
@@ -556,6 +608,10 @@ export function ChatShell() {
 
               <div className="border-t border-[color:var(--border-0)] bg-[color:var(--bg-0)] px-4 py-3 md:px-6">
                 <div className="mx-auto w-full max-w-3xl">
+                  {activeSelectedModel ? (
+                    <ModelBadge model={activeSelectedModel} />
+                  ) : null}
+
                   <Composer
                     participants={participants}
                     onSend={onSend}

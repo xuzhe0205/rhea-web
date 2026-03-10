@@ -9,7 +9,8 @@ export type ChatStreamEvent =
   | { type: "delta"; text: string }
   | { type: "done" }
   | { type: "error"; error: string }
-  | { type: "meta"; conversationId?: string };
+  | { type: "meta"; conversationId?: string }
+  | { type: "model"; value: string };
 
 type StartChatStreamArgs = {
   token: string;
@@ -17,6 +18,27 @@ type StartChatStreamArgs = {
   signal?: AbortSignal;
   onEvent: (event: ChatStreamEvent) => void;
 };
+
+const MODEL_METADATA_PREFIX = "::__metadata__:model:";
+const MODEL_METADATA_SUFFIX = "::";
+
+function tryParseModelMetadata(text: string): string | null {
+  const trimmed = text.trim();
+
+  if (
+    trimmed.startsWith(MODEL_METADATA_PREFIX) &&
+    trimmed.endsWith(MODEL_METADATA_SUFFIX)
+  ) {
+    return trimmed
+      .slice(
+        MODEL_METADATA_PREFIX.length,
+        trimmed.length - MODEL_METADATA_SUFFIX.length,
+      )
+      .trim();
+  }
+
+  return null;
+}
 
 export async function startChatStream({
   token,
@@ -58,13 +80,17 @@ export async function startChatStream({
     const data = currentDataLines.join("\n");
 
     if (currentEvent === "delta") {
-      onEvent({ type: "delta", text: data });
+      const model = tryParseModelMetadata(data);
+      if (model) {
+        onEvent({ type: "model", value: model });
+      } else {
+        onEvent({ type: "delta", text: data });
+      }
     } else if (currentEvent === "done") {
       onEvent({ type: "done" });
     } else if (currentEvent === "error") {
       onEvent({ type: "error", error: data || "Unknown stream error" });
     } else if (currentEvent === "meta") {
-      // optional future-proof event if backend emits metadata JSON
       try {
         const parsed = JSON.parse(data);
         onEvent({
