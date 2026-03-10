@@ -76,6 +76,7 @@ export function ChatShell() {
   const [messagesByConversation, setMessagesByConversation] = useState<
     Record<string, Msg[]>
   >({});
+
   const [pendingMessages, setPendingMessages] = useState<Msg[]>([]);
   const [loadingMessagesFor, setLoadingMessagesFor] = useState<string | null>(null);
   const [streamingConversationId, setStreamingConversationId] = useState<string | null>(
@@ -113,7 +114,6 @@ export function ChatShell() {
   useEffect(() => {
     if (!token) return;
     void refreshConversations();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   useEffect(() => {
@@ -124,8 +124,7 @@ export function ChatShell() {
     if (existing && existing.length > 0) return;
 
     void loadConversationMessages(activeConversationId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeConversationId, token, messagesByConversation]);
+  }, [activeConversationId, token]);
 
   useEffect(() => {
     requestAnimationFrame(() => {
@@ -138,6 +137,7 @@ export function ChatShell() {
     if (!token) return [];
 
     setLoadingConvs(true);
+
     try {
       const rows = await listConversations(token);
       const mapped = mapConversations(rows ?? []);
@@ -153,6 +153,9 @@ export function ChatShell() {
 
   async function loadConversationMessages(conversationId: string) {
     if (!token) return;
+
+    const existing = messagesByConversation[conversationId];
+    if (existing && existing.length > 0) return;
 
     setLoadingMessagesFor(conversationId);
 
@@ -176,6 +179,7 @@ export function ChatShell() {
 
   function onSelectConversation(id: string) {
     if (streamingConversationId) return;
+
     router.push(`/c/${id}`);
     setSidebarOpen(false);
   }
@@ -185,6 +189,7 @@ export function ChatShell() {
 
     setPendingMessages([]);
     setPendingSelectedModel(null);
+
     router.push("/");
     setSidebarOpen(false);
   }
@@ -222,10 +227,12 @@ export function ChatShell() {
           status: "streaming",
         },
       ]);
+
       setPendingSelectedModel(null);
     } else {
       setMessagesByConversation((prev) => {
         const current = prev[activeConversationId] ?? [];
+
         return {
           ...prev,
           [activeConversationId]: [
@@ -257,6 +264,7 @@ export function ChatShell() {
         body: isNewConversation
           ? { message: trimmed }
           : { message: trimmed, conversation_id: activeConversationId! },
+
         onEvent: (event) => {
           if (event.type === "meta" && event.conversationId) {
             resolvedConversationId = event.conversationId;
@@ -266,6 +274,7 @@ export function ChatShell() {
 
               setMessagesByConversation((prev) => {
                 if (prev[realId]?.length) return prev;
+
                 return {
                   ...prev,
                   [realId]: pendingMessagesRef.current,
@@ -278,8 +287,6 @@ export function ChatShell() {
                   [realId]: pendingSelectedModelRef.current!,
                 }));
               }
-
-              router.replace(`/c/${realId}`);
             }
 
             return;
@@ -310,106 +317,25 @@ export function ChatShell() {
               setPendingMessages((prev) =>
                 prev.map((m) =>
                   m.id === assistantMessageId
-                    ? {
-                        ...m,
-                        content: m.content + event.text,
-                        status: "streaming",
-                      }
+                    ? { ...m, content: m.content + event.text, status: "streaming" }
                     : m,
                 ),
               );
-
-              if (resolvedConversationId) {
-                setMessagesByConversation((prev) => {
-                  const current = prev[resolvedConversationId!] ?? [];
-                  return {
-                    ...prev,
-                    [resolvedConversationId!]: current.map((m) =>
-                      m.id === assistantMessageId
-                        ? {
-                            ...m,
-                            content: m.content + event.text,
-                            status: "streaming",
-                          }
-                        : m,
-                    ),
-                  };
-                });
-              }
             } else {
               setMessagesByConversation((prev) => {
                 const current = prev[activeConversationId!] ?? [];
+
                 return {
                   ...prev,
                   [activeConversationId!]: current.map((m) =>
                     m.id === assistantMessageId
-                      ? {
-                          ...m,
-                          content: m.content + event.text,
-                          status: "streaming",
-                        }
+                      ? { ...m, content: m.content + event.text, status: "streaming" }
                       : m,
                   ),
                 };
               });
             }
-            return;
-          }
 
-          if (event.type === "error") {
-            if (isNewConversation) {
-              setPendingMessages((prev) =>
-                prev.map((m) =>
-                  m.id === assistantMessageId
-                    ? {
-                        ...m,
-                        content:
-                          m.content ||
-                          "Sorry — something went wrong while streaming the response.",
-                        status: "error",
-                      }
-                    : m,
-                ),
-              );
-
-              if (resolvedConversationId) {
-                setMessagesByConversation((prev) => {
-                  const current = prev[resolvedConversationId!] ?? [];
-                  return {
-                    ...prev,
-                    [resolvedConversationId!]: current.map((m) =>
-                      m.id === assistantMessageId
-                        ? {
-                            ...m,
-                            content:
-                              m.content ||
-                              "Sorry — something went wrong while streaming the response.",
-                            status: "error",
-                          }
-                        : m,
-                    ),
-                  };
-                });
-              }
-            } else {
-              setMessagesByConversation((prev) => {
-                const current = prev[activeConversationId!] ?? [];
-                return {
-                  ...prev,
-                  [activeConversationId!]: current.map((m) =>
-                    m.id === assistantMessageId
-                      ? {
-                          ...m,
-                          content:
-                            m.content ||
-                            "Sorry — something went wrong while streaming the response.",
-                          status: "error",
-                        }
-                      : m,
-                  ),
-                };
-              });
-            }
             return;
           }
 
@@ -420,21 +346,10 @@ export function ChatShell() {
                   m.id === assistantMessageId ? { ...m, status: "done" } : m,
                 ),
               );
-
-              if (resolvedConversationId) {
-                setMessagesByConversation((prev) => {
-                  const current = prev[resolvedConversationId!] ?? [];
-                  return {
-                    ...prev,
-                    [resolvedConversationId!]: current.map((m) =>
-                      m.id === assistantMessageId ? { ...m, status: "done" } : m,
-                    ),
-                  };
-                });
-              }
             } else {
               setMessagesByConversation((prev) => {
                 const current = prev[activeConversationId!] ?? [];
+
                 return {
                   ...prev,
                   [activeConversationId!]: current.map((m) =>
@@ -463,6 +378,7 @@ export function ChatShell() {
           setMessagesByConversation((prev) => {
             const alreadyExisting = prev[finalConversationId] ?? [];
             const pending = pendingMessagesRef.current ?? [];
+
             return {
               ...prev,
               [finalConversationId]:
@@ -479,63 +395,13 @@ export function ChatShell() {
 
           setPendingMessages([]);
           setPendingSelectedModel(null);
+
           router.replace(`/c/${finalConversationId}`);
         }
       }
 
       return true;
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Failed to send message.";
-
-      if (isNewConversation) {
-        setPendingMessages((prev) =>
-          prev.map((m) =>
-            m.id === assistantMessageId
-              ? {
-                  ...m,
-                  content: message,
-                  status: "error",
-                }
-              : m,
-          ),
-        );
-
-        if (resolvedConversationId) {
-          setMessagesByConversation((prev) => {
-            const current = prev[resolvedConversationId!] ?? [];
-            return {
-              ...prev,
-              [resolvedConversationId!]: current.map((m) =>
-                m.id === assistantMessageId
-                  ? {
-                      ...m,
-                      content: message,
-                      status: "error",
-                    }
-                  : m,
-              ),
-            };
-          });
-        }
-      } else {
-        setMessagesByConversation((prev) => {
-          const current = prev[activeConversationId!] ?? [];
-          return {
-            ...prev,
-            [activeConversationId!]: current.map((m) =>
-              m.id === assistantMessageId
-                ? {
-                    ...m,
-                    content: message,
-                    status: "error",
-                  }
-                : m,
-            ),
-          };
-        });
-      }
-
+    } catch {
       return false;
     } finally {
       setStreamingConversationId(null);
@@ -567,61 +433,56 @@ export function ChatShell() {
         />
 
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          <Topbar
-            title={activeTitle}
-            participants={participants}
-            onOpenSidebar={() => setSidebarOpen(true)}
-            onNewConversation={createConversationLocal}
-          />
-
-          {!activeConversationId && pendingMessages.length === 0 ? (
-            <main className="flex flex-1 items-center justify-center px-4 md:px-6">
-              <div className="w-full max-w-3xl">
-                <WelcomeComposer
-                  userName={me?.user_name || me?.email || "there"}
-                  onSend={onSend}
-                  disabled={!!streamingConversationId}
-                />
-              </div>
-            </main>
-          ) : (
-            <>
-              <div
-                ref={threadRef}
-                className="min-h-0 flex-1 overflow-y-auto px-4 py-6 md:px-6"
-              >
-                <div className="mx-auto w-full max-w-3xl">
-                  {activeConversationId &&
-                  loadingMessagesFor === activeConversationId &&
-                  activeMessages.length === 0 ? (
-                    <MessagesLoadingState />
-                  ) : activeMessages.length === 0 ? (
-                    <ConversationEmptyHint />
-                  ) : (
-                    <>
-                      <MessageList messages={activeMessages} />
-                      <div className="h-6" />
-                    </>
-                  )}
-                </div>
-              </div>
-
-              <div className="border-t border-[color:var(--border-0)] bg-[color:var(--bg-0)] px-4 py-3 md:px-6">
-                <div className="mx-auto w-full max-w-3xl">
-                  {activeSelectedModel ? (
-                    <ModelBadge model={activeSelectedModel} />
-                  ) : null}
-
-                  <Composer
-                    participants={participants}
+            <Topbar
+                title={activeTitle}
+                participants={participants}
+                onOpenSidebar={() => setSidebarOpen(true)}
+                onNewConversation={createConversationLocal}
+            />
+            {!activeConversationId && pendingMessages.length === 0 ? (
+                <main className="flex flex-1 items-center justify-center px-4 md:px-6">
+                <div className="w-full max-w-3xl">
+                    <WelcomeComposer
+                    userName={me?.user_name || me?.email || "there"}
                     onSend={onSend}
                     disabled={!!streamingConversationId}
-                  />
+                    />
                 </div>
-              </div>
-            </>
-          )}
-        </div>
+                </main>
+            ) : (
+                <>
+                <div
+                    ref={threadRef}
+                    className="min-h-0 flex-1 overflow-y-auto px-4 py-6 md:px-6"
+                >
+                    <div className="mx-auto w-full max-w-3xl">
+                    {activeMessages.length === 0 ? (
+                        <ConversationEmptyHint />
+                    ) : (
+                        <>
+                        <MessageList messages={activeMessages} />
+                        <div className="h-6" />
+                        </>
+                    )}
+                    </div>
+                </div>
+
+                <div className="border-t border-[color:var(--border-0)] bg-[color:var(--bg-0)] px-4 py-3 md:px-6">
+                    <div className="mx-auto w-full max-w-3xl">
+                    {activeSelectedModel ? (
+                        <ModelBadge model={activeSelectedModel} />
+                    ) : null}
+
+                    <Composer
+                        participants={participants}
+                        onSend={onSend}
+                        disabled={!!streamingConversationId}
+                    />
+                    </div>
+                </div>
+                </>
+            )}
+            </div>
       </div>
     </div>
   );
