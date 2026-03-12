@@ -1,5 +1,8 @@
 "use client";
 
+import Image from "next/image";
+import Link from "next/link";
+
 type Conversation = { id: string; title: string; updatedAt?: string };
 
 export function Sidebar(props: {
@@ -33,15 +36,32 @@ export function Sidebar(props: {
       >
         <div className="flex h-full flex-col">
           {/* Brand */}
-          <div className="flex h-14 items-center justify-between px-4">
-            <div className="leading-tight select-text">
-              <div className="text-[13px] font-medium tracking-[0.18em] text-[color:var(--text-0)]">
-                RHEA
+          <div className="flex h-16 items-center justify-between px-4">
+            <Link
+              href="/"
+              onClick={props.onClose}
+              className="flex items-center gap-3 cursor-pointer select-none"
+              aria-label="Go to home"
+            >
+              <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-[10px] border border-[color:var(--border-0)] bg-[color:var(--bg-2)]">
+                <Image
+                  src="/rhea-logo.png"
+                  alt="RHEA Index"
+                  fill
+                  className="object-contain"
+                  priority
+                />
               </div>
-              <div className="mt-1 text-[11px] uppercase tracking-[0.14em] text-[color:var(--text-2)]">
-                Index
+
+              <div className="leading-tight">
+                <div className="text-[13px] font-medium tracking-[0.18em] text-[color:var(--text-0)]">
+                  RHEA
+                </div>
+                <div className="mt-1 text-[11px] uppercase tracking-[0.14em] text-[color:var(--text-2)]">
+                  Index
+                </div>
               </div>
-            </div>
+            </Link>
 
             <button
               className="md:hidden inline-flex h-9 w-9 items-center justify-center rounded-[var(--radius-md)] border border-[color:var(--border-0)] bg-[color:var(--bg-1)] text-[color:var(--text-0)] hover:bg-[color:var(--bg-3)] transition cursor-pointer"
@@ -116,7 +136,7 @@ export function Sidebar(props: {
                   Account
                 </div>
                 <div className="truncate text-xs text-[color:var(--text-2)] select-text">
-                  Settings & profile
+                  Settings &amp; profile
                 </div>
               </div>
             </div>
