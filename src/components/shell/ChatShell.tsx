@@ -7,10 +7,12 @@ import { Topbar } from "@/components/shell/Topbar";
 import { MessageList } from "@/components/chat/MessageList";
 import { Composer } from "@/components/chat/Composer";
 import { ModelBadge } from "@/components/chat/ModelBadge";
+import { TokenBadge } from "@/components/chat/TokenBadge";
 import { useAuth } from "@/context/AuthContext";
 import { listConversations } from "@/lib/conversations";
 import { listConversationMessages } from "@/lib/messages";
 import { startChatStream } from "@/lib/chat-stream";
+import { getConversationTokenSum } from "@/lib/conversation-token-sum";
 
 type Participant = { id: string; name: string };
 
@@ -88,6 +90,11 @@ export function ChatShell() {
   >({});
   const [pendingSelectedModel, setPendingSelectedModel] = useState<string | null>(null);
 
+  const [tokenSumByConversation, setTokenSumByConversation] = useState<
+  Record<string, number | null>
+>({});
+const [loadingTokenSumFor, setLoadingTokenSumFor] = useState<string | null>(null);
+
   const pendingMessagesRef = useRef<Msg[]>([]);
   const pendingSelectedModelRef = useRef<string | null>(null);
   const threadRef = useRef<HTMLDivElement | null>(null);
@@ -133,6 +140,13 @@ export function ChatShell() {
     });
   }, [activeConversationId, messagesByConversation, pendingMessages]);
 
+  useEffect(() => {
+  if (!token) return;
+  if (!activeConversationId) return;
+
+  void loadConversationTokenSum(activeConversationId);
+}, [token, activeConversationId]);
+
   async function refreshConversations() {
     if (!token) return [];
 
@@ -176,6 +190,29 @@ export function ChatShell() {
       setLoadingMessagesFor((curr) => (curr === conversationId ? null : curr));
     }
   }
+
+  async function loadConversationTokenSum(conversationId: string, force = false) {
+  if (!token) return;
+
+  if (!force && conversationId in tokenSumByConversation) return;
+
+  setLoadingTokenSumFor(conversationId);
+
+  try {
+    const res = await getConversationTokenSum(token, conversationId);
+    setTokenSumByConversation((prev) => ({
+      ...prev,
+      [conversationId]: res?.token_sum ?? 0,
+    }));
+  } catch {
+    setTokenSumByConversation((prev) => ({
+      ...prev,
+      [conversationId]: null,
+    }));
+  } finally {
+    setLoadingTokenSumFor((curr) => (curr === conversationId ? null : curr));
+  }
+}
 
   function onSelectConversation(id: string) {
     if (streamingConversationId) return;
@@ -397,7 +434,12 @@ export function ChatShell() {
           setPendingSelectedModel(null);
 
           router.replace(`/c/${finalConversationId}`);
+          void loadConversationTokenSum(finalConversationId, true);
         }
+      }
+
+      if (!isNewConversation && activeConversationId) {
+        void loadConversationTokenSum(activeConversationId, true);
       }
 
       return true;
@@ -469,17 +511,26 @@ export function ChatShell() {
 
                 <div className="border-t border-[color:var(--border-0)] bg-[color:var(--bg-0)] px-4 py-3 md:px-6">
                     <div className="mx-auto w-full max-w-3xl">
-                    {activeSelectedModel ? (
-                        <ModelBadge model={activeSelectedModel} />
-                    ) : null}
+                        {(activeSelectedModel || activeConversationId) && (
+                        <div className="mb-2 flex flex-wrap items-center gap-2">
+                            {activeSelectedModel ? <ModelBadge model={activeSelectedModel} /> : null}
 
-                    <Composer
+                            {activeConversationId ? (
+                            <TokenBadge
+                                tokenSum={tokenSumByConversation[activeConversationId] ?? null}
+                                loading={loadingTokenSumFor === activeConversationId}
+                            />
+                            ) : null}
+                        </div>
+                        )}
+
+                        <Composer
                         participants={participants}
                         onSend={onSend}
                         disabled={!!streamingConversationId}
-                    />
+                        />
                     </div>
-                </div>
+                  </div>
                 </>
             )}
             </div>

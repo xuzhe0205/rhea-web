@@ -36,23 +36,10 @@ export function ModelBadge({ model }: { model: string }) {
   const provider = providerLabel(parsed.provider);
 
   return (
-    <div className="mb-2 flex items-center justify-start">
-      <div className="inline-flex items-center gap-2 rounded-full border border-[color:var(--border-0)] bg-[color:var(--bg-1)] px-3 py-1.5 text-xs">
-
-        {/* Provider indicator */}
-        <span className={`h-1.5 w-1.5 rounded-full ${dotColor}`} />
-
-        {/* Provider */}
-        <span className="font-medium text-[color:var(--text-0)]">
-          {provider}
-        </span>
-
-        {/* Model name */}
-        <span className="font-mono text-[color:var(--text-2)]">
-          {parsed.model}
-        </span>
-
-      </div>
+    <div className="inline-flex items-center gap-2 rounded-full border border-[color:var(--border-0)] bg-[color:var(--bg-1)] px-3 py-1.5 text-xs">
+      <span className={`h-1.5 w-1.5 rounded-full ${dotColor}`} />
+      <span className="font-medium text-[color:var(--text-0)]">{provider}</span>
+      <span className="font-mono text-[color:var(--text-2)]">{parsed.model}</span>
     </div>
   );
 }
