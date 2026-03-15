@@ -188,6 +188,17 @@ export function ChatShell() {
     streamingConversationId,
   ]);
 
+  // 关键修复：
+  // 当真正进入 /c/[id] 后，再清理新对话期间用到的 pending 状态。
+  // 这样可以避免在 router.replace() 之前先把当前 / 页面展示的 pendingMessages 清空。
+  useEffect(() => {
+    if (!activeConversationId) return;
+    if (pendingMessagesRef.current.length === 0 && pendingSelectedModelRef.current == null) return;
+
+    setPendingMessages([]);
+    setPendingSelectedModel(null);
+  }, [activeConversationId]);
+
   function handleThreadScroll() {
     const el = threadRef.current;
     if (!el) return;
@@ -562,9 +573,8 @@ export function ChatShell() {
             }));
           }
 
-          setPendingMessages([]);
-          setPendingSelectedModel(null);
-
+          // 关键修复：这里先不要清空 pendingMessages / pendingSelectedModel
+          // 否则当前还停留在 / 时，activeMessages 仍走 pendingMessages，会导致 UI 瞬间清空。
           router.replace(`/c/${finalConversationId}`);
           void loadConversationTokenSum(finalConversationId, true);
         }

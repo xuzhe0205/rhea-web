@@ -5,12 +5,14 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { ChatShell } from "@/components/shell/ChatShell";
 
-export default function HomePage() {
+export default function ChatLayout() {
   const router = useRouter();
   const { state } = useAuth();
 
   useEffect(() => {
-    if (state.status === "anon") router.replace("/login");
+    if (state.status === "anon") {
+      router.replace("/login");
+    }
   }, [state.status, router]);
 
   if (state.status === "loading") {
@@ -21,7 +23,9 @@ export default function HomePage() {
     );
   }
 
-  if (state.status === "anon") return null;
+  if (state.status === "anon") {
+    return null;
+  }
 
   return <ChatShell />;
 }
