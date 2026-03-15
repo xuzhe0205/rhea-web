@@ -11,12 +11,17 @@ export async function listConversationMessages(
   token: string,
   conversationId: string,
   limit = 50,
+  beforeId?: string,
 ) {
-  return apiFetch<MessageDTO[]>(
-    `/v1/conversations/${conversationId}/messages?limit=${limit}`,
-    {
-      method: "GET",
-      token,
-    },
-  );
+  const qs = new URLSearchParams();
+  qs.set("limit", String(limit));
+
+  if (beforeId) {
+    qs.set("before_id", beforeId);
+  }
+
+  return apiFetch<MessageDTO[]>(`/v1/conversations/${conversationId}/messages?${qs.toString()}`, {
+    method: "GET",
+    token,
+  });
 }

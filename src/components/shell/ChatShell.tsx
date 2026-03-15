@@ -30,6 +30,8 @@ type Conversation = {
   updatedAt?: string;
 };
 
+const PAGE_SIZE = 50;
+
 function normalizeConversationTitle(c: any) {
   return c.title || c.name || c.subject || "Untitled";
 }
@@ -75,15 +77,13 @@ export function ChatShell() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loadingConvs, setLoadingConvs] = useState(false);
 
-  const [messagesByConversation, setMessagesByConversation] = useState<
-    Record<string, Msg[]>
-  >({});
+  const [messagesByConversation, setMessagesByConversation] = useState<Record<string, Msg[]>>({});
 
   const [pendingMessages, setPendingMessages] = useState<Msg[]>([]);
   const [loadingMessagesFor, setLoadingMessagesFor] = useState<string | null>(null);
-  const [streamingConversationId, setStreamingConversationId] = useState<string | null>(
-    null,
-  );
+  const [loadingOlderFor, setLoadingOlderFor] = useState<string | null>(null);
+  const [hasMoreByConversation, setHasMoreByConversation] = useState<Record<string, boolean>>({});
+  const [streamingConversationId, setStreamingConversationId] = useState<string | null>(null);
 
   const [selectedModelByConversation, setSelectedModelByConversation] = useState<
     Record<string, string>
@@ -91,13 +91,16 @@ export function ChatShell() {
   const [pendingSelectedModel, setPendingSelectedModel] = useState<string | null>(null);
 
   const [tokenSumByConversation, setTokenSumByConversation] = useState<
-  Record<string, number | null>
->({});
-const [loadingTokenSumFor, setLoadingTokenSumFor] = useState<string | null>(null);
+    Record<string, number | null>
+  >({});
+  const [loadingTokenSumFor, setLoadingTokenSumFor] = useState<string | null>(null);
 
   const pendingMessagesRef = useRef<Msg[]>([]);
   const pendingSelectedModelRef = useRef<string | null>(null);
   const threadRef = useRef<HTMLDivElement | null>(null);
+  const topSentinelRef = useRef<HTMLDivElement | null>(null);
+  const shouldStickToBottomRef = useRef(true);
+  const paginationLockRef = useRef(false);
 
   useEffect(() => {
     pendingMessagesRef.current = pendingMessages;
@@ -115,8 +118,7 @@ const [loadingTokenSumFor, setLoadingTokenSumFor] = useState<string | null>(null
     [],
   );
 
-  const activeConversationId =
-    typeof params?.id === "string" ? params.id : null;
+  const activeConversationId = typeof params?.id === "string" ? params.id : null;
 
   useEffect(() => {
     if (!token) return;
@@ -136,16 +138,63 @@ const [loadingTokenSumFor, setLoadingTokenSumFor] = useState<string | null>(null
   useEffect(() => {
     requestAnimationFrame(() => {
       const el = threadRef.current;
-      if (el) el.scrollTop = el.scrollHeight;
+      if (!el) return;
+
+      if (shouldStickToBottomRef.current) {
+        el.scrollTop = el.scrollHeight;
+      }
     });
-  }, [activeConversationId, messagesByConversation, pendingMessages]);
+  }, [activeConversationId, pendingMessages, streamingConversationId]);
 
   useEffect(() => {
-  if (!token) return;
-  if (!activeConversationId) return;
+    if (!token) return;
+    if (!activeConversationId) return;
 
-  void loadConversationTokenSum(activeConversationId);
-}, [token, activeConversationId]);
+    void loadConversationTokenSum(activeConversationId);
+  }, [token, activeConversationId]);
+
+  useEffect(() => {
+    if (!activeConversationId) return;
+    if (!threadRef.current) return;
+    if (!topSentinelRef.current) return;
+    if (!messagesByConversation[activeConversationId]?.length) return;
+
+    const root = threadRef.current;
+    const sentinel = topSentinelRef.current;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (!entry?.isIntersecting) return;
+
+        void loadOlderMessages(activeConversationId);
+      },
+      {
+        root,
+        rootMargin: "120px 0px 0px 0px",
+        threshold: 0,
+      },
+    );
+
+    observer.observe(sentinel);
+
+    return () => observer.disconnect();
+  }, [
+    activeConversationId,
+    token,
+    loadingOlderFor,
+    hasMoreByConversation,
+    messagesByConversation,
+    streamingConversationId,
+  ]);
+
+  function handleThreadScroll() {
+    const el = threadRef.current;
+    if (!el) return;
+
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    shouldStickToBottomRef.current = distanceFromBottom < 120;
+  }
 
   async function refreshConversations() {
     if (!token) return [];
@@ -174,45 +223,129 @@ const [loadingTokenSumFor, setLoadingTokenSumFor] = useState<string | null>(null
     setLoadingMessagesFor(conversationId);
 
     try {
-      const rows = await listConversationMessages(token, conversationId, 50);
+      const rows = await listConversationMessages(token, conversationId, PAGE_SIZE);
       const mapped = sortMessagesAsc((rows ?? []).map(normalizeMessage));
 
       setMessagesByConversation((prev) => ({
         ...prev,
         [conversationId]: mapped,
       }));
+
+      setHasMoreByConversation((prev) => ({
+        ...prev,
+        [conversationId]: (rows?.length ?? 0) === PAGE_SIZE,
+      }));
+
+      requestAnimationFrame(() => {
+        const el = threadRef.current;
+        if (!el) return;
+        el.scrollTop = el.scrollHeight;
+        shouldStickToBottomRef.current = true;
+      });
     } catch {
       setMessagesByConversation((prev) => ({
         ...prev,
         [conversationId]: [],
+      }));
+
+      setHasMoreByConversation((prev) => ({
+        ...prev,
+        [conversationId]: false,
       }));
     } finally {
       setLoadingMessagesFor((curr) => (curr === conversationId ? null : curr));
     }
   }
 
-  async function loadConversationTokenSum(conversationId: string, force = false) {
-  if (!token) return;
+  async function loadOlderMessages(conversationId: string) {
+    if (!token) return;
+    if (paginationLockRef.current) return;
+    if (loadingOlderFor === conversationId) return;
+    if (!hasMoreByConversation[conversationId]) return;
+    if (streamingConversationId) return;
 
-  if (!force && conversationId in tokenSumByConversation) return;
+    const current = messagesByConversation[conversationId] ?? [];
+    if (current.length === 0) return;
 
-  setLoadingTokenSumFor(conversationId);
+    const oldest = current[0];
+    if (!oldest?.id) return;
 
-  try {
-    const res = await getConversationTokenSum(token, conversationId);
-    setTokenSumByConversation((prev) => ({
-      ...prev,
-      [conversationId]: res?.token_sum ?? 0,
-    }));
-  } catch {
-    setTokenSumByConversation((prev) => ({
-      ...prev,
-      [conversationId]: null,
-    }));
-  } finally {
-    setLoadingTokenSumFor((curr) => (curr === conversationId ? null : curr));
+    const scroller = threadRef.current;
+    const prevScrollHeight = scroller?.scrollHeight ?? 0;
+    const prevScrollTop = scroller?.scrollTop ?? 0;
+
+    paginationLockRef.current = true;
+    setLoadingOlderFor(conversationId);
+
+    try {
+      const rows = await listConversationMessages(token, conversationId, PAGE_SIZE, oldest.id);
+
+      const mapped = sortMessagesAsc((rows ?? []).map(normalizeMessage));
+
+      if (mapped.length === 0) {
+        setHasMoreByConversation((prev) => ({
+          ...prev,
+          [conversationId]: false,
+        }));
+        return;
+      }
+
+      setMessagesByConversation((prev) => {
+        const existing = prev[conversationId] ?? [];
+        const existingIds = new Set(existing.map((m) => m.id));
+        const newRows = mapped.filter((m) => !existingIds.has(m.id));
+
+        if (newRows.length === 0) return prev;
+
+        return {
+          ...prev,
+          [conversationId]: [...newRows, ...existing],
+        };
+      });
+
+      setHasMoreByConversation((prev) => ({
+        ...prev,
+        [conversationId]: rows.length === PAGE_SIZE,
+      }));
+
+      requestAnimationFrame(() => {
+        const el = threadRef.current;
+        if (!el) return;
+
+        const newScrollHeight = el.scrollHeight;
+        const delta = newScrollHeight - prevScrollHeight;
+        el.scrollTop = prevScrollTop + delta;
+      });
+    } catch {
+      // keep current UI state unchanged
+    } finally {
+      setLoadingOlderFor((curr) => (curr === conversationId ? null : curr));
+      paginationLockRef.current = false;
+    }
   }
-}
+
+  async function loadConversationTokenSum(conversationId: string, force = false) {
+    if (!token) return;
+
+    if (!force && conversationId in tokenSumByConversation) return;
+
+    setLoadingTokenSumFor(conversationId);
+
+    try {
+      const res = await getConversationTokenSum(token, conversationId);
+      setTokenSumByConversation((prev) => ({
+        ...prev,
+        [conversationId]: res?.token_sum ?? 0,
+      }));
+    } catch {
+      setTokenSumByConversation((prev) => ({
+        ...prev,
+        [conversationId]: null,
+      }));
+    } finally {
+      setLoadingTokenSumFor((curr) => (curr === conversationId ? null : curr));
+    }
+  }
 
   function onSelectConversation(id: string) {
     if (streamingConversationId) return;
@@ -291,6 +424,8 @@ const [loadingTokenSumFor, setLoadingTokenSumFor] = useState<string | null>(null
           ],
         };
       });
+
+      shouldStickToBottomRef.current = true;
     }
 
     let resolvedConversationId: string | undefined;
@@ -379,9 +514,7 @@ const [loadingTokenSumFor, setLoadingTokenSumFor] = useState<string | null>(null
           if (event.type === "done") {
             if (isNewConversation) {
               setPendingMessages((prev) =>
-                prev.map((m) =>
-                  m.id === assistantMessageId ? { ...m, status: "done" } : m,
-                ),
+                prev.map((m) => (m.id === assistantMessageId ? { ...m, status: "done" } : m)),
               );
             } else {
               setMessagesByConversation((prev) => {
@@ -418,8 +551,7 @@ const [loadingTokenSumFor, setLoadingTokenSumFor] = useState<string | null>(null
 
             return {
               ...prev,
-              [finalConversationId]:
-                alreadyExisting.length > 0 ? alreadyExisting : pending,
+              [finalConversationId]: alreadyExisting.length > 0 ? alreadyExisting : pending,
             };
           });
 
@@ -451,15 +583,15 @@ const [loadingTokenSumFor, setLoadingTokenSumFor] = useState<string | null>(null
   }
 
   const activeMessages = activeConversationId
-    ? messagesByConversation[activeConversationId] ?? []
+    ? (messagesByConversation[activeConversationId] ?? [])
     : pendingMessages;
 
   const activeTitle = activeConversationId
-    ? conversations.find((c) => c.id === activeConversationId)?.title ?? "Conversation"
+    ? (conversations.find((c) => c.id === activeConversationId)?.title ?? "Conversation")
     : "RHEA Index";
 
   const activeSelectedModel = activeConversationId
-    ? selectedModelByConversation[activeConversationId] ?? null
+    ? (selectedModelByConversation[activeConversationId] ?? null)
     : pendingSelectedModel;
 
   return (
@@ -475,65 +607,83 @@ const [loadingTokenSumFor, setLoadingTokenSumFor] = useState<string | null>(null
         />
 
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-            <Topbar
-                title={activeTitle}
-                participants={participants}
-                onOpenSidebar={() => setSidebarOpen(true)}
-                onNewConversation={createConversationLocal}
-            />
-            {!activeConversationId && pendingMessages.length === 0 ? (
-                <main className="flex flex-1 items-center justify-center px-4 md:px-6">
-                <div className="w-full max-w-3xl">
-                    <WelcomeComposer
-                    userName={me?.user_name || me?.email || "there"}
+          <Topbar
+            title={activeTitle}
+            participants={participants}
+            onOpenSidebar={() => setSidebarOpen(true)}
+            onNewConversation={createConversationLocal}
+          />
+
+          {!activeConversationId && pendingMessages.length === 0 ? (
+            <main className="flex flex-1 items-center justify-center px-4 md:px-6">
+              <div className="w-full max-w-3xl">
+                <WelcomeComposer
+                  userName={me?.user_name || me?.email || "there"}
+                  onSend={onSend}
+                  disabled={!!streamingConversationId}
+                />
+              </div>
+            </main>
+          ) : (
+            <>
+              <div
+                ref={threadRef}
+                onScroll={handleThreadScroll}
+                className="min-h-0 flex-1 overflow-y-auto px-4 py-6 md:px-6"
+              >
+                <div className="mx-auto w-full max-w-3xl">
+                  {activeConversationId ? (
+                    <div ref={topSentinelRef} className="h-1 w-full" aria-hidden="true" />
+                  ) : null}
+
+                  {activeConversationId && loadingOlderFor === activeConversationId ? (
+                    <div className="mb-3 flex items-center justify-center py-2">
+                      <div className="text-xs text-[color:var(--text-2)]">
+                        Loading older messages…
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {activeMessages.length === 0 ? (
+                    loadingMessagesFor === activeConversationId ? (
+                      <MessagesLoadingState />
+                    ) : (
+                      <ConversationEmptyHint />
+                    )
+                  ) : (
+                    <>
+                      <MessageList messages={activeMessages} />
+                      <div className="h-6" />
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <div className="border-t border-[color:var(--border-0)] bg-[color:var(--bg-0)] px-4 py-3 md:px-6">
+                <div className="mx-auto w-full max-w-3xl">
+                  {(activeSelectedModel || activeConversationId) && (
+                    <div className="mb-2 flex flex-wrap items-center gap-2">
+                      {activeSelectedModel ? <ModelBadge model={activeSelectedModel} /> : null}
+
+                      {activeConversationId ? (
+                        <TokenBadge
+                          tokenSum={tokenSumByConversation[activeConversationId] ?? null}
+                          loading={loadingTokenSumFor === activeConversationId}
+                        />
+                      ) : null}
+                    </div>
+                  )}
+
+                  <Composer
+                    participants={participants}
                     onSend={onSend}
                     disabled={!!streamingConversationId}
-                    />
+                  />
                 </div>
-                </main>
-            ) : (
-                <>
-                <div
-                    ref={threadRef}
-                    className="min-h-0 flex-1 overflow-y-auto px-4 py-6 md:px-6"
-                >
-                    <div className="mx-auto w-full max-w-3xl">
-                    {activeMessages.length === 0 ? (
-                        <ConversationEmptyHint />
-                    ) : (
-                        <>
-                        <MessageList messages={activeMessages} />
-                        <div className="h-6" />
-                        </>
-                    )}
-                    </div>
-                </div>
-
-                <div className="border-t border-[color:var(--border-0)] bg-[color:var(--bg-0)] px-4 py-3 md:px-6">
-                    <div className="mx-auto w-full max-w-3xl">
-                        {(activeSelectedModel || activeConversationId) && (
-                        <div className="mb-2 flex flex-wrap items-center gap-2">
-                            {activeSelectedModel ? <ModelBadge model={activeSelectedModel} /> : null}
-
-                            {activeConversationId ? (
-                            <TokenBadge
-                                tokenSum={tokenSumByConversation[activeConversationId] ?? null}
-                                loading={loadingTokenSumFor === activeConversationId}
-                            />
-                            ) : null}
-                        </div>
-                        )}
-
-                        <Composer
-                        participants={participants}
-                        onSend={onSend}
-                        disabled={!!streamingConversationId}
-                        />
-                    </div>
-                  </div>
-                </>
-            )}
-            </div>
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -552,11 +702,7 @@ function WelcomeComposer(props: {
         </div>
 
         <div className="mt-6">
-          <Composer
-            participants={[]}
-            onSend={props.onSend}
-            disabled={props.disabled}
-          />
+          <Composer participants={[]} onSend={props.onSend} disabled={props.disabled} />
         </div>
 
         <div className="mt-6 grid gap-3 sm:grid-cols-2">
@@ -593,11 +739,7 @@ function SkeletonMessage({ wide }: { wide?: boolean }) {
   return (
     <div className="rounded-[var(--radius-lg)] border border-[color:var(--border-0)] bg-[color:var(--bg-1)] p-4">
       <div className="mb-3 h-3 w-20 rounded bg-[color:var(--bg-3)]" />
-      <div
-        className={`h-3 rounded bg-[color:var(--bg-3)] ${
-          wide ? "w-[90%]" : "w-[70%]"
-        }`}
-      />
+      <div className={`h-3 rounded bg-[color:var(--bg-3)] ${wide ? "w-[90%]" : "w-[70%]"}`} />
       <div className="mt-2 h-3 w-[55%] rounded bg-[color:var(--bg-3)]" />
     </div>
   );
@@ -620,12 +762,10 @@ function ConversationEmptyHint() {
       <div className="text-xs uppercase tracking-[0.14em] text-[color:var(--text-2)]">
         Conversation
       </div>
-      <div className="mt-2 text-lg font-medium text-[color:var(--text-0)]">
-        Start the thread
-      </div>
+      <div className="mt-2 text-lg font-medium text-[color:var(--text-0)]">Start the thread</div>
       <div className="mt-2 text-sm text-[color:var(--text-1)]">
-        Ask something, paste notes, or continue building your thinking here. Older
-        messages will be paginated upward once we add infinite scroll.
+        Ask something, paste notes, or continue building your thinking here. Older messages will be
+        paginated upward once we add infinite scroll.
       </div>
     </div>
   );
