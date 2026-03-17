@@ -58,8 +58,8 @@ export default function SignupPage() {
             onChange={(e) => setPassword(e.target.value)}
             autoComplete="new-password"
             type="password"
-            placeholder="8+ characters"
-            minLength={8}
+            placeholder="6+ characters"
+            minLength={6}
             required
           />
         </Field>
