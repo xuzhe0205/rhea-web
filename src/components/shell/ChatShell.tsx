@@ -662,7 +662,11 @@ export function ChatShell() {
                     )
                   ) : (
                     <>
-                      <MessageList messages={activeMessages} />
+                      <MessageList
+                        messages={activeMessages}
+                        token={token}
+                        conversationId={activeConversationId}
+                      />
                       <div className="h-6" />
                     </>
                   )}

@@ -1,3 +1,5 @@
+"use client";
+
 import { MessageBlock } from "@/components/chat/MessageBlock";
 
 type Msg = {
@@ -8,13 +10,24 @@ type Msg = {
   status?: "streaming" | "done" | "error";
 };
 
-export function MessageList({ messages }: { messages: Msg[] }) {
+export function MessageList({
+  messages,
+  token,
+  conversationId,
+}: {
+  messages: Msg[];
+  token: string | null;
+  conversationId: string | null;
+}) {
   return (
     <div className="space-y-4">
-      {messages.map((m) => (
-        <div key={m.id}>
-          <MessageBlock msg={m} />
-        </div>
+      {messages.map((msg) => (
+        <MessageBlock
+          key={msg.id}
+          msg={msg}
+          token={token}
+          conversationId={conversationId}
+        />
       ))}
     </div>
   );

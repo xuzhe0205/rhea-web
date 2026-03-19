@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { MarkdownMessage } from "@/components/chat/MarkdownMessage";
+import { useMessageHighlights } from "@/hooks/useMessageHighlights";
+import { AnnotatedMarkdownMessage } from "@/components/chat/richtext/AnnotatedMarkdownMessage";
 
 type Msg = {
   id: string;
@@ -13,7 +14,15 @@ type Msg = {
 
 const USER_COLLAPSED_MAX_HEIGHT = 160;
 
-export function MessageBlock({ msg }: { msg: Msg }) {
+export function MessageBlock({
+  msg,
+  token,
+  conversationId,
+}: {
+  msg: Msg;
+  token: string | null;
+  conversationId: string | null;
+}) {
   const isUser = msg.role === "user";
   const isStreaming = msg.status === "streaming";
   const isError = msg.status === "error";
@@ -21,6 +30,8 @@ export function MessageBlock({ msg }: { msg: Msg }) {
   const contentRef = useRef<HTMLDivElement | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [isOverflowing, setIsOverflowing] = useState(false);
+
+  const { highlights, createHighlight } = useMessageHighlights(token, msg.id);
 
   useEffect(() => {
     if (!isUser) return;
@@ -38,7 +49,7 @@ export function MessageBlock({ msg }: { msg: Msg }) {
     ro.observe(el);
 
     return () => ro.disconnect();
-  }, [isUser, msg.content]);
+  }, [isUser, msg.content, highlights]);
 
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
@@ -61,7 +72,7 @@ export function MessageBlock({ msg }: { msg: Msg }) {
 
           {!isUser && isStreaming ? (
             <span className="ml-2 inline-flex items-center gap-1 normal-case tracking-normal text-[11px] text-[color:var(--text-2)]">
-              <span className="h-1.5 w-1.5 rounded-full bg-[color:var(--accent)] animate-pulse" />
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[color:var(--accent)]" />
               responding
             </span>
           ) : null}
@@ -69,7 +80,7 @@ export function MessageBlock({ msg }: { msg: Msg }) {
 
         <div
           className={[
-            "relative overflow-hidden border transition",
+            "relative overflow-visible border transition",
             isUser
               ? [
                   "rounded-[24px] px-5 py-4",
@@ -86,23 +97,37 @@ export function MessageBlock({ msg }: { msg: Msg }) {
         >
           {!isUser ? (
             <span
-              className="absolute left-0 top-4 bottom-4 w-[3px] rounded-full bg-[color:var(--accent)]"
+              className="absolute bottom-4 left-0 top-4 w-[3px] rounded-full bg-[color:var(--accent)]"
               aria-hidden="true"
             />
           ) : null}
 
           <div className={isUser && isOverflowing && !expanded ? "relative" : ""}>
-            <div
-              ref={contentRef}
-              className={`overflow-hidden break-words ${isUser ? "text-left" : "text-left"}`}
-              style={
-                isUser && isOverflowing && !expanded
-                  ? { maxHeight: `${USER_COLLAPSED_MAX_HEIGHT}px` }
-                  : undefined
-              }
-            >
-              {msg.content ? (
-                <MarkdownMessage content={msg.content} />
+          <div
+            ref={contentRef}
+            className={[
+              "break-words text-left",
+              isUser && isOverflowing && !expanded ? "overflow-hidden" : "overflow-visible",
+            ].join(" ")}
+            style={
+              isUser && isOverflowing && !expanded
+                ? { maxHeight: `${USER_COLLAPSED_MAX_HEIGHT}px` }
+                : undefined
+            }
+          >
+            {msg.content ? (
+              <AnnotatedMarkdownMessage
+                content={msg.content}
+                annotations={highlights}
+                onCreateHighlight={async ({ start, end }) => {
+                  if (!conversationId) return;
+                  await createHighlight({
+                    convId: conversationId,
+                    rangeStart: start,
+                    rangeEnd: end,
+                  });
+                }}
+              />
               ) : !isUser && isStreaming ? (
                 <StreamingPlaceholder />
               ) : null}
@@ -141,7 +166,7 @@ export function MessageBlock({ msg }: { msg: Msg }) {
 function StreamingPlaceholder() {
   return (
     <div className="flex items-center gap-2 text-sm text-[color:var(--text-2)]">
-      <span className="h-2 w-2 rounded-full bg-[color:var(--accent)] animate-pulse" />
+      <span className="h-2 w-2 animate-pulse rounded-full bg-[color:var(--accent)]" />
       <span>Thinking…</span>
     </div>
   );
@@ -150,7 +175,7 @@ function StreamingPlaceholder() {
 function BlinkingCaret() {
   return (
     <span
-      className="inline-block h-4 w-[7px] rounded-[2px] bg-[color:var(--accent)] animate-pulse"
+      className="inline-block h-4 w-[7px] animate-pulse rounded-[2px] bg-[color:var(--accent)]"
       aria-hidden="true"
     />
   );
