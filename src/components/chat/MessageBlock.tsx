@@ -18,10 +18,12 @@ export function MessageBlock({
   msg,
   annotations,
   onCreateHighlight,
+  onRemoveHighlightRange,
 }: {
   msg: Msg;
   annotations: AnnotationDTO[];
   onCreateHighlight: (range: { start: number; end: number }) => Promise<void>;
+  onRemoveHighlightRange: (range: { start: number; end: number }) => Promise<void>;
 }) {
   const isUser = msg.role === "user";
   const isStreaming = msg.status === "streaming";
@@ -118,6 +120,7 @@ export function MessageBlock({
                   content={msg.content}
                   annotations={annotations}
                   onCreateHighlight={onCreateHighlight}
+                  onRemoveHighlightRange={onRemoveHighlightRange}
                 />
               ) : !isUser && isStreaming ? (
                 <StreamingPlaceholder />

@@ -19,9 +19,10 @@ type SelectionRange = {
 };
 
 type Props = {
-  content: string;
-  annotations: AnnotationDTO[];
-  onCreateHighlight: (range: { start: number; end: number }) => Promise<void>;
+    content: string;
+    annotations: AnnotationDTO[];
+    onCreateHighlight: (range: { start: number; end: number }) => Promise<void>;
+    onRemoveHighlightRange: (range: { start: number; end: number }) => Promise<void>;
 };
 
 type RenderContext = {
@@ -38,6 +39,17 @@ export function AnnotatedMarkdownMessage(props: Props) {
     () => toHighlightRanges(props.annotations),
     [props.annotations],
   );
+
+  const highlightCoverage = useMemo(() => {
+    if (!selection) {
+      return {
+        canAddHighlight: false,
+        canRemoveHighlight: false,
+      };
+    }
+  
+    return getHighlightCoverageState(selection, props.annotations);
+  }, [props.annotations, selection]);
 
   const rendered = useMemo(() => {
     resetLeafCounter();
@@ -70,16 +82,25 @@ export function AnnotatedMarkdownMessage(props: Props) {
     <div className="relative">
       <HighlightToolbar
         visible={!!selection}
+        canAddHighlight={highlightCoverage.canAddHighlight}
+        canRemoveHighlight={highlightCoverage.canRemoveHighlight}
         onHighlight={() => {
-          if (!selection) return;
-          void props.onCreateHighlight(selection).then(() => {
+            if (!selection) return;
+            void props.onCreateHighlight(selection).then(() => {
             window.getSelection()?.removeAllRanges();
             setSelection(null);
-          });
+            });
+        }}
+        onRemove={() => {
+            if (!selection) return;
+            void props.onRemoveHighlightRange(selection).then(() => {
+            window.getSelection()?.removeAllRanges();
+            setSelection(null);
+            });
         }}
         onDismiss={() => {
-          window.getSelection()?.removeAllRanges();
-          setSelection(null);
+            window.getSelection()?.removeAllRanges();
+            setSelection(null);
         }}
       />
 
@@ -294,6 +315,58 @@ function renderSegment(segment: HighlightedLeafSegment) {
       {segment.text}
     </span>
   );
+}
+
+function getHighlightCoverageState(
+    selection: { start: number; end: number },
+    annotations: AnnotationDTO[],
+) {
+    const clipped = annotations
+        .filter(
+        (ann) =>
+            ann.type === "highlight" &&
+            selection.start < ann.range_end &&
+            ann.range_start < selection.end,
+        )
+        .map((ann) => ({
+        start: Math.max(selection.start, ann.range_start),
+        end: Math.min(selection.end, ann.range_end),
+        }))
+        .filter((seg) => seg.end > seg.start);
+
+    const canRemoveHighlight = clipped.length > 0;
+
+    if (clipped.length === 0) {
+        return {
+        canAddHighlight: true,
+        canRemoveHighlight: false,
+        };
+    }
+
+    clipped.sort((a, b) => a.start - b.start);
+
+    const merged: Array<{ start: number; end: number }> = [];
+    for (const seg of clipped) {
+        const last = merged[merged.length - 1];
+        if (!last || seg.start > last.end) {
+        merged.push({ ...seg });
+        } else {
+        last.end = Math.max(last.end, seg.end);
+        }
+    }
+
+    let covered = 0;
+    for (const seg of merged) {
+        covered += seg.end - seg.start;
+    }
+
+    const total = selection.end - selection.start;
+    const canAddHighlight = covered < total;
+
+    return {
+        canAddHighlight,
+        canRemoveHighlight,
+    };
 }
 
 function getSelectionRawRange(root: HTMLElement): SelectionRange | null {

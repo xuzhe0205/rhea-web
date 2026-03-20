@@ -73,6 +73,29 @@ export async function createHighlightAnnotation(
   });
 }
 
+export async function deleteAnnotation(token: string, annotationId: string) {
+  return apiFetch<void>(`/v1/annotations/${annotationId}`, {
+    method: "DELETE",
+    token,
+  });
+}
+
+export async function removeHighlightRange(
+    token: string,
+    input: {
+      message_id: string;
+      conv_id: string;
+      range_start: number;
+      range_end: number;
+    },
+  ) {
+    return apiFetch<{ ok: boolean }>(`/v1/annotations/remove-highlight`, {
+      method: "POST",
+      token,
+      body: JSON.stringify(input),
+    });
+  }
+
 // Helper func
 
 export function groupAnnotationsByMessageId(rows: AnnotationDTO[]) {

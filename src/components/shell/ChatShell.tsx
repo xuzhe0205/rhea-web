@@ -13,11 +13,13 @@ import { listConversations } from "@/lib/conversations";
 import { listConversationMessages } from "@/lib/messages";
 import { startChatStream } from "@/lib/chat-stream";
 import { getConversationTokenSum } from "@/lib/conversation-token-sum";
-import type { AnnotationDTO } from "@/lib/annotations";
 import {
   createHighlightAnnotation,
+  deleteAnnotation,
   groupAnnotationsByMessageId,
   listConversationAnnotations,
+  type AnnotationDTO,
+  removeHighlightRange,
 } from "@/lib/annotations";
 
 type Participant = { id: string; name: string };
@@ -756,6 +758,19 @@ export function ChatShell() {
                               },
                             };
                           });
+                        }}
+                        onRemoveHighlightRange = {async (messageId, range) => {
+                          if (!token || !activeConversationId) return;
+                        
+                          await removeHighlightRange(token, {
+                            message_id: messageId,
+                            conv_id: activeConversationId,
+                            range_start: range.start,
+                            range_end: range.end,
+                          });
+                        
+                          const currentMessages = messagesByConversation[activeConversationId] ?? [];
+                          await loadConversationAnnotations(activeConversationId, currentMessages);
                         }}
                       />
                       <div className="h-6" />
