@@ -33,16 +33,33 @@ export async function listMessageAnnotations(token: string, messageId: string) {
   });
 }
 
+export async function listConversationAnnotations(
+  token: string,
+  conversationId: string,
+  messageIds: string[],
+) {
+  const qs = new URLSearchParams();
+
+  if (messageIds.length > 0) {
+    qs.set("message_ids", messageIds.join(","));
+  }
+
+  return apiFetch<AnnotationDTO[]>(
+    `/v1/conversations/${conversationId}/annotations?${qs.toString()}`,
+    {
+      method: "GET",
+      token,
+    },
+  );
+}
+
 export async function createHighlightAnnotation(
   token: string,
   input: CreateHighlightInput,
 ) {
   return apiFetch<{ id: string }>(`/v1/annotations`, {
     method: "POST",
-    headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-    },
+    token,
     body: JSON.stringify({
       message_id: input.message_id,
       conv_id: input.conv_id,
@@ -54,4 +71,19 @@ export async function createHighlightAnnotation(
       extra_attrs: {},
     }),
   });
+}
+
+// Helper func
+
+export function groupAnnotationsByMessageId(rows: AnnotationDTO[]) {
+  const grouped: Record<string, AnnotationDTO[]> = {};
+
+  for (const row of rows ?? []) {
+    if (!grouped[row.message_id]) {
+      grouped[row.message_id] = [];
+    }
+    grouped[row.message_id].push(row);
+  }
+
+  return grouped;
 }

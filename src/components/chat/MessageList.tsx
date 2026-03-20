@@ -1,5 +1,6 @@
 "use client";
 
+import type { AnnotationDTO } from "@/lib/annotations";
 import { MessageBlock } from "@/components/chat/MessageBlock";
 
 type Msg = {
@@ -12,12 +13,12 @@ type Msg = {
 
 export function MessageList({
   messages,
-  token,
-  conversationId,
+  annotationsByMessageId,
+  onCreateHighlight,
 }: {
   messages: Msg[];
-  token: string | null;
-  conversationId: string | null;
+  annotationsByMessageId: Record<string, AnnotationDTO[]>;
+  onCreateHighlight: (messageId: string, range: { start: number; end: number }) => Promise<void>;
 }) {
   return (
     <div className="space-y-4">
@@ -25,8 +26,8 @@ export function MessageList({
         <MessageBlock
           key={msg.id}
           msg={msg}
-          token={token}
-          conversationId={conversationId}
+          annotations={annotationsByMessageId[msg.id] ?? []}
+          onCreateHighlight={(range) => onCreateHighlight(msg.id, range)}
         />
       ))}
     </div>

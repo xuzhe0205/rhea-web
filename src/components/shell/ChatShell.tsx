@@ -13,6 +13,12 @@ import { listConversations } from "@/lib/conversations";
 import { listConversationMessages } from "@/lib/messages";
 import { startChatStream } from "@/lib/chat-stream";
 import { getConversationTokenSum } from "@/lib/conversation-token-sum";
+import type { AnnotationDTO } from "@/lib/annotations";
+import {
+  createHighlightAnnotation,
+  groupAnnotationsByMessageId,
+  listConversationAnnotations,
+} from "@/lib/annotations";
 
 type Participant = { id: string; name: string };
 
@@ -94,6 +100,10 @@ export function ChatShell() {
     Record<string, number | null>
   >({});
   const [loadingTokenSumFor, setLoadingTokenSumFor] = useState<string | null>(null);
+
+  const [annotationsByConversation, setAnnotationsByConversation] = useState<
+    Record<string, Record<string, AnnotationDTO[]>>
+  >({});
 
   const pendingMessagesRef = useRef<Msg[]>([]);
   const pendingSelectedModelRef = useRef<string | null>(null);
@@ -227,26 +237,28 @@ export function ChatShell() {
 
   async function loadConversationMessages(conversationId: string) {
     if (!token) return;
-
+  
     const existing = messagesByConversation[conversationId];
     if (existing && existing.length > 0) return;
-
+  
     setLoadingMessagesFor(conversationId);
-
+  
     try {
       const rows = await listConversationMessages(token, conversationId, PAGE_SIZE);
       const mapped = sortMessagesAsc((rows ?? []).map(normalizeMessage));
-
+  
       setMessagesByConversation((prev) => ({
         ...prev,
         [conversationId]: mapped,
       }));
-
+  
       setHasMoreByConversation((prev) => ({
         ...prev,
         [conversationId]: (rows?.length ?? 0) === PAGE_SIZE,
       }));
-
+  
+      await loadConversationAnnotations(conversationId, mapped);
+  
       requestAnimationFrame(() => {
         const el = threadRef.current;
         if (!el) return;
@@ -258,10 +270,15 @@ export function ChatShell() {
         ...prev,
         [conversationId]: [],
       }));
-
+  
       setHasMoreByConversation((prev) => ({
         ...prev,
         [conversationId]: false,
+      }));
+  
+      setAnnotationsByConversation((prev) => ({
+        ...prev,
+        [conversationId]: {},
       }));
     } finally {
       setLoadingMessagesFor((curr) => (curr === conversationId ? null : curr));
@@ -274,25 +291,24 @@ export function ChatShell() {
     if (loadingOlderFor === conversationId) return;
     if (!hasMoreByConversation[conversationId]) return;
     if (streamingConversationId) return;
-
+  
     const current = messagesByConversation[conversationId] ?? [];
     if (current.length === 0) return;
-
+  
     const oldest = current[0];
     if (!oldest?.id) return;
-
+  
     const scroller = threadRef.current;
     const prevScrollHeight = scroller?.scrollHeight ?? 0;
     const prevScrollTop = scroller?.scrollTop ?? 0;
-
+  
     paginationLockRef.current = true;
     setLoadingOlderFor(conversationId);
-
+  
     try {
       const rows = await listConversationMessages(token, conversationId, PAGE_SIZE, oldest.id);
-
       const mapped = sortMessagesAsc((rows ?? []).map(normalizeMessage));
-
+  
       if (mapped.length === 0) {
         setHasMoreByConversation((prev) => ({
           ...prev,
@@ -300,29 +316,37 @@ export function ChatShell() {
         }));
         return;
       }
-
+  
+      let nextMessages: Msg[] = [];
+  
       setMessagesByConversation((prev) => {
         const existing = prev[conversationId] ?? [];
         const existingIds = new Set(existing.map((m) => m.id));
         const newRows = mapped.filter((m) => !existingIds.has(m.id));
-
+  
+        nextMessages = newRows.length > 0 ? [...newRows, ...existing] : existing;
+  
         if (newRows.length === 0) return prev;
-
+  
         return {
           ...prev,
-          [conversationId]: [...newRows, ...existing],
+          [conversationId]: nextMessages,
         };
       });
-
+  
       setHasMoreByConversation((prev) => ({
         ...prev,
         [conversationId]: rows.length === PAGE_SIZE,
       }));
-
+  
+      if (nextMessages.length > 0) {
+        await loadConversationAnnotations(conversationId, nextMessages);
+      }
+  
       requestAnimationFrame(() => {
         const el = threadRef.current;
         if (!el) return;
-
+  
         const newScrollHeight = el.scrollHeight;
         const delta = newScrollHeight - prevScrollHeight;
         el.scrollTop = prevScrollTop + delta;
@@ -355,6 +379,35 @@ export function ChatShell() {
       }));
     } finally {
       setLoadingTokenSumFor((curr) => (curr === conversationId ? null : curr));
+    }
+  }
+
+  async function loadConversationAnnotations(conversationId: string, messages: Msg[]) {
+    if (!token) return;
+    if (!conversationId) return;
+  
+    const messageIds = messages.map((m) => m.id).filter(Boolean);
+    if (messageIds.length === 0) {
+      setAnnotationsByConversation((prev) => ({
+        ...prev,
+        [conversationId]: {},
+      }));
+      return;
+    }
+  
+    try {
+      const rows = await listConversationAnnotations(token, conversationId, messageIds);
+      const grouped = groupAnnotationsByMessageId(rows ?? []);
+  
+      setAnnotationsByConversation((prev) => ({
+        ...prev,
+        [conversationId]: grouped,
+      }));
+    } catch {
+      setAnnotationsByConversation((prev) => ({
+        ...prev,
+        [conversationId]: {},
+      }));
     }
   }
 
@@ -595,6 +648,9 @@ export function ChatShell() {
   const activeMessages = activeConversationId
     ? (messagesByConversation[activeConversationId] ?? [])
     : pendingMessages;
+  
+  const activeAnnotationsByMessageId =
+    activeConversationId ? (annotationsByConversation[activeConversationId] ?? {}) : {};
 
   const activeTitle = activeConversationId
     ? (conversations.find((c) => c.id === activeConversationId)?.title ?? "Conversation")
@@ -664,8 +720,43 @@ export function ChatShell() {
                     <>
                       <MessageList
                         messages={activeMessages}
-                        token={token}
-                        conversationId={activeConversationId}
+                        annotationsByMessageId={activeAnnotationsByMessageId}
+                        onCreateHighlight={async (messageId, range) => {
+                          if (!token || !activeConversationId) return;
+
+                          const res = await createHighlightAnnotation(token, {
+                            message_id: messageId,
+                            conv_id: activeConversationId,
+                            range_start: range.start,
+                            range_end: range.end,
+                            bg_color: "#FACC15",
+                          });
+
+                          setAnnotationsByConversation((prev) => {
+                            const currentConv = prev[activeConversationId] ?? {};
+                            const currentMsg = currentConv[messageId] ?? [];
+
+                            const nextAnnotation: AnnotationDTO = {
+                              id: res.id,
+                              message_id: messageId,
+                              conv_id: activeConversationId,
+                              type: "highlight",
+                              range_start: range.start,
+                              range_end: range.end,
+                              user_note: "",
+                              bg_color: "#FACC15",
+                              extra_attrs: {},
+                            };
+
+                            return {
+                              ...prev,
+                              [activeConversationId]: {
+                                ...currentConv,
+                                [messageId]: [...currentMsg, nextAnnotation],
+                              },
+                            };
+                          });
+                        }}
                       />
                       <div className="h-6" />
                     </>

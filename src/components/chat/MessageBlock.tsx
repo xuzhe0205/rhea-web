@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useMessageHighlights } from "@/hooks/useMessageHighlights";
+import type { AnnotationDTO } from "@/lib/annotations";
 import { AnnotatedMarkdownMessage } from "@/components/chat/richtext/AnnotatedMarkdownMessage";
 
 type Msg = {
@@ -16,12 +16,12 @@ const USER_COLLAPSED_MAX_HEIGHT = 160;
 
 export function MessageBlock({
   msg,
-  token,
-  conversationId,
+  annotations,
+  onCreateHighlight,
 }: {
   msg: Msg;
-  token: string | null;
-  conversationId: string | null;
+  annotations: AnnotationDTO[];
+  onCreateHighlight: (range: { start: number; end: number }) => Promise<void>;
 }) {
   const isUser = msg.role === "user";
   const isStreaming = msg.status === "streaming";
@@ -30,8 +30,6 @@ export function MessageBlock({
   const contentRef = useRef<HTMLDivElement | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [isOverflowing, setIsOverflowing] = useState(false);
-
-  const { highlights, createHighlight } = useMessageHighlights(token, msg.id);
 
   useEffect(() => {
     if (!isUser) return;
@@ -49,7 +47,7 @@ export function MessageBlock({
     ro.observe(el);
 
     return () => ro.disconnect();
-  }, [isUser, msg.content, highlights]);
+  }, [isUser, msg.content, annotations]);
 
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
@@ -80,7 +78,7 @@ export function MessageBlock({
 
         <div
           className={[
-            "relative overflow-visible border transition",
+            "relative z-10 overflow-visible border transition",
             isUser
               ? [
                   "rounded-[24px] px-5 py-4",
@@ -103,31 +101,24 @@ export function MessageBlock({
           ) : null}
 
           <div className={isUser && isOverflowing && !expanded ? "relative" : ""}>
-          <div
-            ref={contentRef}
-            className={[
-              "break-words text-left",
-              isUser && isOverflowing && !expanded ? "overflow-hidden" : "overflow-visible",
-            ].join(" ")}
-            style={
-              isUser && isOverflowing && !expanded
-                ? { maxHeight: `${USER_COLLAPSED_MAX_HEIGHT}px` }
-                : undefined
-            }
-          >
-            {msg.content ? (
-              <AnnotatedMarkdownMessage
-                content={msg.content}
-                annotations={highlights}
-                onCreateHighlight={async ({ start, end }) => {
-                  if (!conversationId) return;
-                  await createHighlight({
-                    convId: conversationId,
-                    rangeStart: start,
-                    rangeEnd: end,
-                  });
-                }}
-              />
+            <div
+              ref={contentRef}
+              className={[
+                "break-words text-left",
+                isUser && isOverflowing && !expanded ? "overflow-hidden" : "overflow-visible",
+              ].join(" ")}
+              style={
+                isUser && isOverflowing && !expanded
+                  ? { maxHeight: `${USER_COLLAPSED_MAX_HEIGHT}px` }
+                  : undefined
+              }
+            >
+              {msg.content ? (
+                <AnnotatedMarkdownMessage
+                  content={msg.content}
+                  annotations={annotations}
+                  onCreateHighlight={onCreateHighlight}
+                />
               ) : !isUser && isStreaming ? (
                 <StreamingPlaceholder />
               ) : null}
