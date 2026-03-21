@@ -2,16 +2,27 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { FavoriteNavItem } from "./FavoriteNavItem";
 
 type Conversation = { id: string; title: string; updatedAt?: string };
+
+type FavoriteItem = {
+  id: string;
+  conversationId: string;
+  content: string;
+  conversationTitle: string;
+};
 
 export function Sidebar(props: {
   open: boolean;
   onClose: () => void;
 
   conversations: Conversation[];
+  favorites: FavoriteItem[];
+
   activeConversationId: string | null;
   onSelectConversation: (id: string) => void;
+  onSelectFavorite: (fav: FavoriteItem) => void;
 
   onCreateConversation: () => void;
 }) {
@@ -107,15 +118,27 @@ export function Sidebar(props: {
             <div className="h-4" />
 
             <SectionHeader label="Projects" soon />
-            <div className="px-2 py-2 text-xs text-[color:var(--text-2)]">
-              Coming soon.
-            </div>
+            <div className="px-2 py-2 text-xs text-[color:var(--text-2)]">Coming soon.</div>
 
             <div className="h-4" />
 
             <SectionHeader label="Favorites" />
-            <div className="px-2 py-2 text-xs text-[color:var(--text-2)]">
-              Star a chat to pin it here.
+            <div className="space-y-1">
+              {props.favorites.length === 0 ? (
+                <div className="px-2 py-2 text-xs text-[color:var(--text-2)]">
+                  Favorite a message to save it here.
+                </div>
+              ) : (
+                props.favorites.map((fav) => (
+                  <FavoriteNavItem
+                    key={fav.id}
+                    active={props.activeConversationId === fav.conversationId}
+                    preview={fav.content}
+                    conversationTitle={fav.conversationTitle}
+                    onClick={() => props.onSelectFavorite(fav)}
+                  />
+                ))
+              )}
             </div>
 
             <div className="h-4" />
@@ -175,9 +198,7 @@ function NavItem(props: {
       className={[
         "relative flex w-full items-center rounded-[var(--radius-md)] px-3 py-2 text-left text-sm transition",
         "text-[color:var(--text-0)]",
-        disabled
-          ? "cursor-not-allowed opacity-45"
-          : "cursor-pointer hover:bg-[color:var(--bg-3)]",
+        disabled ? "cursor-not-allowed opacity-45" : "cursor-pointer hover:bg-[color:var(--bg-3)]",
         props.active ? "bg-[color:var(--bg-2)]" : "",
       ].join(" ")}
       type="button"
@@ -191,10 +212,7 @@ function NavItem(props: {
   );
 }
 
-function ActionRowButton(props: {
-  children: React.ReactNode;
-  onClick: () => void;
-}) {
+function ActionRowButton(props: { children: React.ReactNode; onClick: () => void }) {
   return (
     <button
       type="button"
@@ -209,12 +227,7 @@ function ActionRowButton(props: {
 function PlusIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
-      <path
-        d="M12 5v14M5 12h14"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-      />
+      <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
     </svg>
   );
 }

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { AnnotationDTO } from "@/lib/annotations";
 import { AnnotatedMarkdownMessage } from "@/components/chat/richtext/AnnotatedMarkdownMessage";
+import { BookmarkIcon } from "@/components/ui/BookmarkIcon";
 
 type Msg = {
   id: string;
@@ -17,6 +18,9 @@ const USER_COLLAPSED_MAX_HEIGHT = 160;
 export function MessageBlock({
   msg,
   annotations,
+  isFavorite,
+  favoriteBusy,
+  onToggleFavorite,
   onCreateHighlight,
   onRemoveHighlightRange,
   onSelectionToolbarVisibleChange,
@@ -24,6 +28,9 @@ export function MessageBlock({
 }: {
   msg: Msg;
   annotations: AnnotationDTO[];
+  isFavorite?: boolean;
+  favoriteBusy?: boolean;
+  onToggleFavorite?: () => void;
   onCreateHighlight: (range: { start: number; end: number }) => Promise<void>;
   onRemoveHighlightRange: (range: { start: number; end: number }) => Promise<void>;
   onSelectionToolbarVisibleChange?: (visible: boolean) => void;
@@ -56,7 +63,7 @@ export function MessageBlock({
   }, [isUser, msg.content, annotations]);
 
   return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+    <div className={`group flex ${isUser ? "justify-end" : "justify-start"}`}>
       <div
         className={
           isUser
@@ -66,20 +73,47 @@ export function MessageBlock({
       >
         <div
           className={[
-            "mb-2 flex items-center text-[11px] font-medium uppercase tracking-[0.14em]",
-            isUser
-              ? "justify-end text-[color:var(--text-2)]"
-              : "justify-start text-[color:var(--accent)]/80",
+            "mb-2 flex items-center justify-between gap-3",
+            isUser ? "text-[color:var(--text-2)]" : "text-[color:var(--accent)]/80",
           ].join(" ")}
         >
-          <span>{isUser ? "You" : "RHEA"}</span>
+          <div
+            className={[
+              "flex min-w-0 items-center text-[11px] font-medium uppercase tracking-[0.14em]",
+              isUser ? "justify-end" : "justify-start",
+            ].join(" ")}
+          >
+            <span>{isUser ? "You" : "RHEA"}</span>
 
-          {!isUser && isStreaming ? (
-            <span className="ml-2 inline-flex items-center gap-1 normal-case tracking-normal text-[11px] text-[color:var(--text-2)]">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[color:var(--accent)]" />
-              responding
-            </span>
-          ) : null}
+            {!isUser && isStreaming ? (
+              <span className="ml-2 inline-flex items-center gap-1 normal-case tracking-normal text-[11px] text-[color:var(--text-2)]">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[color:var(--accent)]" />
+                responding
+              </span>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="pointer-events-none sticky top-2 z-20 -mt-9 mb-2 flex justify-end">
+          <button
+            type="button"
+            aria-label={isFavorite ? "Remove from favorites" : "Add to favorites"}
+            title={isFavorite ? "Remove from favorites" : "Add to favorites"}
+            disabled={favoriteBusy}
+            onClick={onToggleFavorite}
+            className={[
+              "pointer-events-auto inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full",
+              "border border-[color:var(--border-0)] bg-[color:var(--bg-1)]/72",
+              "transition cursor-pointer",
+              "hover:bg-[color:var(--bg-3)] active:scale-[0.97]",
+              "disabled:cursor-not-allowed disabled:opacity-60",
+              isFavorite
+                ? "text-[color:var(--accent)] opacity-100"
+                : "text-[color:var(--text-2)] opacity-80 md:opacity-0 md:group-hover:opacity-100",
+            ].join(" ")}
+          >
+            <BookmarkIcon filled={isFavorite} busy={favoriteBusy} />
+          </button>
         </div>
 
         <div

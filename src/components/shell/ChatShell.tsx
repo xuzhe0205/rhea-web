@@ -10,7 +10,13 @@ import { ModelBadge } from "@/components/chat/ModelBadge";
 import { TokenBadge } from "@/components/chat/TokenBadge";
 import { useAuth } from "@/context/AuthContext";
 import { listConversations } from "@/lib/conversations";
-import { listConversationMessages } from "@/lib/messages";
+import {
+  listConversationMessages,
+  listFavoriteMessages,
+  listFavoriteJumpMessages,
+  patchMessageFavorite,
+  type FavoriteMessageDTO,
+} from "@/lib/messages";
 import { startChatStream } from "@/lib/chat-stream";
 import { getConversationTokenSum } from "@/lib/conversation-token-sum";
 import {
@@ -33,6 +39,7 @@ type Msg = {
   role: "user" | "assistant";
   content: string;
   createdAt?: string;
+  isFavorite?: boolean;
   status?: "streaming" | "done" | "error";
 };
 
@@ -40,6 +47,13 @@ type Conversation = {
   id: string;
   title: string;
   updatedAt?: string;
+};
+
+type FavoriteItem = {
+  id: string;
+  conversationId: string;
+  content: string;
+  conversationTitle: string;
 };
 
 const PAGE_SIZE = 50;
@@ -58,6 +72,7 @@ function normalizeMessage(m: any): Msg {
     role: m.role === "assistant" ? "assistant" : "user",
     content: m.content || "",
     createdAt: m.created_at || m.createdAt,
+    isFavorite: !!(m.is_favorite ?? m.isFavorite),
     status: "done",
   };
 }
@@ -77,6 +92,13 @@ function mapConversations(rows: any[]): Conversation[] {
   return mapped;
 }
 
+function getMessagePreview(content: string, maxLen = 48) {
+  const cleaned = (content || "").replace(/\s+/g, " ").trim();
+  if (!cleaned) return "(empty message)";
+  if (cleaned.length <= maxLen) return cleaned;
+  return `${cleaned.slice(0, maxLen).trimEnd()}…`;
+}
+
 export function ChatShell() {
   const router = useRouter();
   const params = useParams();
@@ -88,6 +110,10 @@ export function ChatShell() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loadingConvs, setLoadingConvs] = useState(false);
+
+  const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
+  const [loadingFavorites, setLoadingFavorites] = useState(false);
+  const [togglingFavoriteId, setTogglingFavoriteId] = useState<string | null>(null);
 
   const [messagesByConversation, setMessagesByConversation] = useState<Record<string, Msg[]>>({});
 
@@ -142,7 +168,10 @@ export function ChatShell() {
 
   useEffect(() => {
     if (!token) return;
-    void refreshConversations();
+    void (async () => {
+      const convs = await refreshConversations();
+      await refreshFavorites(convs);
+    })();
   }, [token]);
 
   useEffect(() => {
@@ -222,16 +251,16 @@ export function ChatShell() {
   useEffect(() => {
     const el = footerRef.current;
     if (!el) return;
-  
+
     const update = () => {
       setFooterHeight(el.getBoundingClientRect().height);
     };
-  
+
     update();
-  
+
     const ro = new ResizeObserver(() => update());
     ro.observe(el);
-  
+
     return () => ro.disconnect();
   }, []);
 
@@ -261,30 +290,60 @@ export function ChatShell() {
     }
   }
 
+  async function refreshFavorites(currentConversations?: Conversation[]) {
+    if (!token) return [];
+
+    setLoadingFavorites(true);
+
+    try {
+      const rows = await listFavoriteMessages(token, 50, 0);
+      const convs = currentConversations ?? conversations;
+      const titleById = new Map(convs.map((c) => [c.id, c.title]));
+
+      const mapped: FavoriteItem[] = (rows ?? []).map((row: FavoriteMessageDTO) => {
+        const conversationId = row.conv_id || row.conversationId || "";
+        return {
+          id: row.id,
+          conversationId,
+          content: getMessagePreview(row.content || ""),
+          conversationTitle: titleById.get(conversationId) ?? "Conversation",
+        };
+      });
+
+      setFavorites(mapped);
+      return mapped;
+    } catch {
+      setFavorites([]);
+      return [];
+    } finally {
+      setLoadingFavorites(false);
+    }
+  }
+
   async function loadConversationMessages(conversationId: string) {
     if (!token) return;
-  
+
     const existing = messagesByConversation[conversationId];
     if (existing && existing.length > 0) return;
-  
+
     setLoadingMessagesFor(conversationId);
-  
+
     try {
       const rows = await listConversationMessages(token, conversationId, PAGE_SIZE);
       const mapped = sortMessagesAsc((rows ?? []).map(normalizeMessage));
-  
+
       setMessagesByConversation((prev) => ({
         ...prev,
         [conversationId]: mapped,
       }));
-  
+
       setHasMoreByConversation((prev) => ({
         ...prev,
         [conversationId]: (rows?.length ?? 0) === PAGE_SIZE,
       }));
-  
+
       await loadConversationAnnotations(conversationId, mapped);
-  
+
       requestAnimationFrame(() => {
         const el = threadRef.current;
         if (!el) return;
@@ -296,12 +355,12 @@ export function ChatShell() {
         ...prev,
         [conversationId]: [],
       }));
-  
+
       setHasMoreByConversation((prev) => ({
         ...prev,
         [conversationId]: false,
       }));
-  
+
       setAnnotationsByConversation((prev) => ({
         ...prev,
         [conversationId]: {},
@@ -317,24 +376,24 @@ export function ChatShell() {
     if (loadingOlderFor === conversationId) return;
     if (!hasMoreByConversation[conversationId]) return;
     if (streamingConversationId) return;
-  
+
     const current = messagesByConversation[conversationId] ?? [];
     if (current.length === 0) return;
-  
+
     const oldest = current[0];
     if (!oldest?.id) return;
-  
+
     const scroller = threadRef.current;
     const prevScrollHeight = scroller?.scrollHeight ?? 0;
     const prevScrollTop = scroller?.scrollTop ?? 0;
-  
+
     paginationLockRef.current = true;
     setLoadingOlderFor(conversationId);
-  
+
     try {
       const rows = await listConversationMessages(token, conversationId, PAGE_SIZE, oldest.id);
       const mapped = sortMessagesAsc((rows ?? []).map(normalizeMessage));
-  
+
       if (mapped.length === 0) {
         setHasMoreByConversation((prev) => ({
           ...prev,
@@ -342,37 +401,37 @@ export function ChatShell() {
         }));
         return;
       }
-  
+
       let nextMessages: Msg[] = [];
-  
+
       setMessagesByConversation((prev) => {
         const existing = prev[conversationId] ?? [];
         const existingIds = new Set(existing.map((m) => m.id));
         const newRows = mapped.filter((m) => !existingIds.has(m.id));
-  
+
         nextMessages = newRows.length > 0 ? [...newRows, ...existing] : existing;
-  
+
         if (newRows.length === 0) return prev;
-  
+
         return {
           ...prev,
           [conversationId]: nextMessages,
         };
       });
-  
+
       setHasMoreByConversation((prev) => ({
         ...prev,
         [conversationId]: rows.length === PAGE_SIZE,
       }));
-  
+
       if (nextMessages.length > 0) {
         await loadConversationAnnotations(conversationId, nextMessages);
       }
-  
+
       requestAnimationFrame(() => {
         const el = threadRef.current;
         if (!el) return;
-  
+
         const newScrollHeight = el.scrollHeight;
         const delta = newScrollHeight - prevScrollHeight;
         el.scrollTop = prevScrollTop + delta;
@@ -411,7 +470,7 @@ export function ChatShell() {
   async function loadConversationAnnotations(conversationId: string, messages: Msg[]) {
     if (!token) return;
     if (!conversationId) return;
-  
+
     const messageIds = messages.map((m) => m.id).filter(Boolean);
     if (messageIds.length === 0) {
       setAnnotationsByConversation((prev) => ({
@@ -420,11 +479,11 @@ export function ChatShell() {
       }));
       return;
     }
-  
+
     try {
       const rows = await listConversationAnnotations(token, conversationId, messageIds);
       const grouped = groupAnnotationsByMessageId(rows ?? []);
-  
+
       setAnnotationsByConversation((prev) => ({
         ...prev,
         [conversationId]: grouped,
@@ -442,6 +501,86 @@ export function ChatShell() {
 
     router.push(`/c/${id}`);
     setSidebarOpen(false);
+  }
+
+  async function onSelectFavorite(fav: FavoriteItem) {
+    if (streamingConversationId) return;
+    if (!token) return;
+
+    try {
+      const rows = await listFavoriteJumpMessages(token, fav.conversationId, fav.id, 50);
+      const mapped = sortMessagesAsc((rows ?? []).map(normalizeMessage));
+
+      setMessagesByConversation((prev) => ({
+        ...prev,
+        [fav.conversationId]: mapped,
+      }));
+
+      setHasMoreByConversation((prev) => ({
+        ...prev,
+        [fav.conversationId]: true,
+      }));
+
+      await loadConversationAnnotations(fav.conversationId, mapped);
+
+      router.push(`/c/${fav.conversationId}`);
+      setSidebarOpen(false);
+
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const el = document.getElementById(`msg-${fav.id}`);
+          const scroller = threadRef.current;
+
+          if (!el || !scroller) return;
+
+          const scrollerRect = scroller.getBoundingClientRect();
+          const elRect = el.getBoundingClientRect();
+          const top = elRect.top - scrollerRect.top + scroller.scrollTop - 24;
+
+          scroller.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+
+          el.classList.add("favorite-jump-flash");
+          window.setTimeout(() => {
+            el.classList.remove("favorite-jump-flash");
+          }, 1600);
+        });
+      });
+    } catch (err) {
+      console.error("Failed to open favorite:", err);
+    }
+  }
+
+  async function toggleFavorite(messageId: string, nextValue: boolean) {
+    if (!token || !activeConversationId) return;
+    if (togglingFavoriteId) return;
+
+    setTogglingFavoriteId(messageId);
+
+    const prevMessages = messagesByConversation[activeConversationId] ?? [];
+
+    setMessagesByConversation((prev) => {
+      const current = prev[activeConversationId] ?? [];
+      return {
+        ...prev,
+        [activeConversationId]: current.map((m) =>
+          m.id === messageId ? { ...m, isFavorite: nextValue } : m,
+        ),
+      };
+    });
+
+    try {
+      await patchMessageFavorite(token, messageId, nextValue);
+      await refreshFavorites();
+    } catch (err) {
+      console.error("Failed to toggle favorite:", err);
+
+      setMessagesByConversation((prev) => ({
+        ...prev,
+        [activeConversationId]: prevMessages,
+      }));
+    } finally {
+      setTogglingFavoriteId(null);
+    }
   }
 
   function createConversationLocal() {
@@ -674,9 +813,10 @@ export function ChatShell() {
   const activeMessages = activeConversationId
     ? (messagesByConversation[activeConversationId] ?? [])
     : pendingMessages;
-  
-  const activeAnnotationsByMessageId =
-    activeConversationId ? (annotationsByConversation[activeConversationId] ?? {}) : {};
+
+  const activeAnnotationsByMessageId = activeConversationId
+    ? (annotationsByConversation[activeConversationId] ?? {})
+    : {};
 
   const activeTitle = activeConversationId
     ? (conversations.find((c) => c.id === activeConversationId)?.title ?? "Conversation")
@@ -693,8 +833,10 @@ export function ChatShell() {
           open={sidebarOpen}
           onClose={() => setSidebarOpen(false)}
           conversations={conversations}
+          favorites={favorites}
           activeConversationId={activeConversationId}
           onSelectConversation={onSelectConversation}
+          onSelectFavorite={onSelectFavorite}
           onCreateConversation={createConversationLocal}
         />
 
@@ -750,6 +892,8 @@ export function ChatShell() {
                       <MessageList
                         messages={activeMessages}
                         annotationsByMessageId={activeAnnotationsByMessageId}
+                        onToggleFavorite={toggleFavorite}
+                        togglingFavoriteId={togglingFavoriteId}
                         onCreateHighlight={async (messageId, range) => {
                           if (!token || !activeConversationId) return;
 

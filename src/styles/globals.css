@@ -206,3 +206,18 @@ button {
 .rhea-user-collapse-fade {
   pointer-events: none;
 }
+
+.favorite-jump-flash {
+  animation: favoriteJumpFlash 1.6s ease-out;
+}
+
+@keyframes favoriteJumpFlash {
+  0% {
+    box-shadow: 0 0 0 0 rgba(96, 165, 250, 0.55);
+    background-color: rgba(96, 165, 250, 0.08);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(96, 165, 250, 0);
+    background-color: transparent;
+  }
+}
