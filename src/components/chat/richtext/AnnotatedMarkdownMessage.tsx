@@ -19,12 +19,12 @@ type SelectionRange = {
 };
 
 type Props = {
-    content: string;
-    annotations: AnnotationDTO[];
-    onCreateHighlight: (range: { start: number; end: number }) => Promise<void>;
-    onRemoveHighlightRange: (range: { start: number; end: number }) => Promise<void>;
-    onSelectionToolbarVisibleChange?: (visible: boolean) => void;
-    mobileFooterOffset?: number;
+  content: string;
+  annotations: AnnotationDTO[];
+  onCreateHighlight: (range: { start: number; end: number }) => Promise<void>;
+  onRemoveHighlightRange: (range: { start: number; end: number }) => Promise<void>;
+  onSelectionToolbarVisibleChange?: (visible: boolean) => void;
+  mobileFooterOffset?: number;
 };
 
 type RenderContext = {
@@ -37,12 +37,11 @@ export function AnnotatedMarkdownMessage(props: Props) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [selection, setSelection] = useState<SelectionRange | null>(null);
   const [isMobile, setIsMobile] = useState(false);
-  const [toolbarPosition, setToolbarPosition] = useState<{ top: number; left: number } | null>(null);
-
-  const highlightRanges = useMemo(
-    () => toHighlightRanges(props.annotations),
-    [props.annotations],
+  const [toolbarPosition, setToolbarPosition] = useState<{ top: number; left: number } | null>(
+    null,
   );
+
+  const highlightRanges = useMemo(() => toHighlightRanges(props.annotations), [props.annotations]);
 
   const highlightCoverage = useMemo(() => {
     if (!selection) {
@@ -51,7 +50,7 @@ export function AnnotatedMarkdownMessage(props: Props) {
         canRemoveHighlight: false,
       };
     }
-  
+
     return getHighlightCoverageState(selection, props.annotations);
   }, [props.annotations, selection]);
 
@@ -69,77 +68,142 @@ export function AnnotatedMarkdownMessage(props: Props) {
     };
   }, [props.content, highlightRanges]);
 
-  useEffect(() => {
-    function handleSelectionChange() {
-        const root = rootRef.current;
-        if (!root) return;
-      
-        const domSelection = window.getSelection();
-        if (!domSelection || domSelection.rangeCount === 0 || domSelection.isCollapsed) {
-          setSelection(null);
-          setToolbarPosition(null);
-          return;
-        }
-      
-        const range = domSelection.getRangeAt(0);
-        const next = getSelectionRawRange(root);
-      
-        if (!next) {
-          setSelection(null);
-          setToolbarPosition(null);
-          return;
-        }
-      
-        setSelection(next);
-      
-        if (!isMobile) {
-          updateToolbarFromCurrentSelection();
-        } else {
-          setToolbarPosition(null);
-        }
+  function updateToolbarFromCurrentSelection() {
+    const root = rootRef.current;
+    if (!root || isMobile) return;
+
+    const domSelection = window.getSelection();
+    if (!domSelection || domSelection.rangeCount === 0 || domSelection.isCollapsed) {
+      setToolbarPosition(null);
+      return;
     }
 
-    document.addEventListener("selectionchange", handleSelectionChange);
-    return () => document.removeEventListener("selectionchange", handleSelectionChange);
-  }, []);
+    const range = domSelection.getRangeAt(0);
+
+    if (!root.contains(range.commonAncestorContainer)) {
+      setToolbarPosition(null);
+      return;
+    }
+
+    if (!isRangeVisibleInViewport(range)) {
+      setToolbarPosition(null);
+      return;
+    }
+
+    setToolbarPosition(computeDesktopToolbarPosition(range));
+  }
+
+  function syncSelectionStateFromDOM() {
+    const root = rootRef.current;
+    if (!root) return;
+
+    const domSelection = window.getSelection();
+    if (!domSelection || domSelection.rangeCount === 0 || domSelection.isCollapsed) {
+      setSelection(null);
+      setToolbarPosition(null);
+      return;
+    }
+
+    const range = domSelection.getRangeAt(0);
+    const next = getSelectionRawRange(root);
+
+    if (!next) {
+      setSelection(null);
+      setToolbarPosition(null);
+      return;
+    }
+
+    setSelection(next);
+
+    if (!isMobile) {
+      if (!root.contains(range.commonAncestorContainer)) {
+        setToolbarPosition(null);
+        return;
+      }
+
+      if (!isRangeVisibleInViewport(range)) {
+        setToolbarPosition(null);
+        return;
+      }
+
+      setToolbarPosition(computeDesktopToolbarPosition(range));
+    } else {
+      setToolbarPosition(null);
+    }
+  }
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 767px)");
-  
+
     const sync = () => setIsMobile(mq.matches);
     sync();
-  
+
     const handler = () => sync();
     mq.addEventListener("change", handler);
-  
+
     return () => mq.removeEventListener("change", handler);
   }, []);
 
   useEffect(() => {
+    function handleSelectionChange() {
+      syncSelectionStateFromDOM();
+    }
+
+    document.addEventListener("selectionchange", handleSelectionChange);
+    return () => document.removeEventListener("selectionchange", handleSelectionChange);
+  }, [isMobile]);
+
+  useEffect(() => {
+    if (!isMobile) return;
+
+    let timeoutId: number | null = null;
+
+    const handleTouchEnd = () => {
+      if (timeoutId != null) {
+        window.clearTimeout(timeoutId);
+      }
+
+      timeoutId = window.setTimeout(() => {
+        syncSelectionStateFromDOM();
+      }, 120);
+    };
+
+    document.addEventListener("touchend", handleTouchEnd, true);
+
+    return () => {
+      if (timeoutId != null) {
+        window.clearTimeout(timeoutId);
+      }
+      document.removeEventListener("touchend", handleTouchEnd, true);
+    };
+  }, [isMobile]);
+
+  useEffect(() => {
     if (!props.onSelectionToolbarVisibleChange) return;
+
     if (!isMobile) {
       props.onSelectionToolbarVisibleChange(false);
       return;
     }
-  
+
     props.onSelectionToolbarVisibleChange(!!selection);
-  }, [isMobile, selection, props]);
+  }, [isMobile, selection, props.onSelectionToolbarVisibleChange]);
 
   useEffect(() => {
     if (isMobile || !selection) return;
-  
+
     let frame = 0;
-  
+
     const scheduleUpdate = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
         updateToolbarFromCurrentSelection();
       });
     };
-  
+
     window.addEventListener("scroll", scheduleUpdate, true);
     window.addEventListener("resize", scheduleUpdate);
-  
+
     return () => {
       cancelAnimationFrame(frame);
       window.removeEventListener("scroll", scheduleUpdate, true);
@@ -147,69 +211,41 @@ export function AnnotatedMarkdownMessage(props: Props) {
     };
   }, [isMobile, selection]);
 
-  function updateToolbarFromCurrentSelection() {
-    const root = rootRef.current;
-    if (!root || isMobile) return;
-  
-    const domSelection = window.getSelection();
-    if (!domSelection || domSelection.rangeCount === 0 || domSelection.isCollapsed) {
-      setToolbarPosition(null);
-      return;
-    }
-  
-    const range = domSelection.getRangeAt(0);
-  
-    if (!root.contains(range.commonAncestorContainer)) {
-      setToolbarPosition(null);
-      return;
-    }
-  
-    if (!isRangeVisibleInViewport(range)) {
-      setToolbarPosition(null);
-      return;
-    }
-  
-    setToolbarPosition(computeDesktopToolbarPosition(range));
-  }
-
   return (
     <div className="relative">
-        <HighlightToolbar
-            visible={isMobile ? !!selection : !!selection && !!toolbarPosition}
-            isMobile={isMobile}
-            position={toolbarPosition}
-            canAddHighlight={highlightCoverage.canAddHighlight}
-            canRemoveHighlight={highlightCoverage.canRemoveHighlight}
-            onHighlight={() => {
-            if (!selection) return;
-            void props.onCreateHighlight(selection).then(() => {
-                window.getSelection()?.removeAllRanges();
-                setSelection(null);
-                setToolbarPosition(null);
-            });
-            }}
-            onRemove={() => {
-            if (!selection) return;
-            void props.onRemoveHighlightRange(selection).then(() => {
-                window.getSelection()?.removeAllRanges();
-                setSelection(null);
-                setToolbarPosition(null);
-            });
-            }}
-            onDismiss={() => {
-                window.getSelection()?.removeAllRanges();
-                setSelection(null);
-                setToolbarPosition(null);
-            }}
-            mobileFooterOffset={props.mobileFooterOffset}
-        />
+      <HighlightToolbar
+        visible={isMobile ? !!selection : !!selection && !!toolbarPosition}
+        isMobile={isMobile}
+        position={toolbarPosition}
+        canAddHighlight={highlightCoverage.canAddHighlight}
+        canRemoveHighlight={highlightCoverage.canRemoveHighlight}
+        onHighlight={() => {
+          if (!selection) return;
+          void props.onCreateHighlight(selection).then(() => {
+            window.getSelection()?.removeAllRanges();
+            setSelection(null);
+            setToolbarPosition(null);
+          });
+        }}
+        onRemove={() => {
+          if (!selection) return;
+          void props.onRemoveHighlightRange(selection).then(() => {
+            window.getSelection()?.removeAllRanges();
+            setSelection(null);
+            setToolbarPosition(null);
+          });
+        }}
+        onDismiss={() => {
+          window.getSelection()?.removeAllRanges();
+          setSelection(null);
+          setToolbarPosition(null);
+        }}
+        mobileFooterOffset={props.mobileFooterOffset}
+      />
 
-        <div
-            ref={rootRef}
-            className="rhea-markdown text-[14px] leading-6 text-[color:var(--text-0)]"
-        >
-            {rendered.node}
-        </div>
+      <div ref={rootRef} className="rhea-markdown text-[14px] leading-6 text-[color:var(--text-0)]">
+        {rendered.node}
+      </div>
     </div>
   );
 }
@@ -222,9 +258,7 @@ function renderRoot(
   return (
     <>
       {root.children.map((child, index) => (
-        <Fragment key={`root-${index}`}>
-          {renderNode(child, context, highlights, {})}
-        </Fragment>
+        <Fragment key={`root-${index}`}>{renderNode(child, context, highlights, {})}</Fragment>
       ))}
     </>
   );
@@ -241,17 +275,17 @@ function renderNode(
       return <p>{renderChildren(node, context, highlights, marks)}</p>;
 
     case "heading": {
-        const level = Math.min(node.depth, 6);
-        const Tag = `h${level}` as "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
-    
-        const className =
-            node.depth === 1
-            ? "mt-6 mb-3 text-2xl font-semibold"
-            : node.depth === 2
-                ? "mt-5 mb-3 text-xl font-semibold"
-                : "mt-4 mb-2 text-lg font-semibold";
-        
-        return <Tag className={className}>{renderChildren(node, context, highlights, marks)}</Tag>;
+      const level = Math.min(node.depth, 6);
+      const Tag = `h${level}` as "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
+
+      const className =
+        node.depth === 1
+          ? "mt-6 mb-3 text-2xl font-semibold"
+          : node.depth === 2
+            ? "mt-5 mb-3 text-xl font-semibold"
+            : "mt-4 mb-2 text-lg font-semibold";
+
+      return <Tag className={className}>{renderChildren(node, context, highlights, marks)}</Tag>;
     }
 
     case "blockquote":
@@ -265,17 +299,13 @@ function renderNode(
       return node.ordered ? (
         <ol className="my-3 list-decimal pl-6">
           {node.children.map((child, index) => (
-            <Fragment key={`ol-${index}`}>
-              {renderNode(child, context, highlights, marks)}
-            </Fragment>
+            <Fragment key={`ol-${index}`}>{renderNode(child, context, highlights, marks)}</Fragment>
           ))}
         </ol>
       ) : (
         <ul className="my-3 list-disc pl-6">
           {node.children.map((child, index) => (
-            <Fragment key={`ul-${index}`}>
-              {renderNode(child, context, highlights, marks)}
-            </Fragment>
+            <Fragment key={`ul-${index}`}>{renderNode(child, context, highlights, marks)}</Fragment>
           ))}
         </ul>
       );
@@ -335,9 +365,7 @@ function renderChildren(
   marks: MarkdownLeafMark,
 ) {
   return node.children.map((child, index) => (
-    <Fragment key={`${node.type}-${index}`}>
-      {renderNode(child, context, highlights, marks)}
-    </Fragment>
+    <Fragment key={`${node.type}-${index}`}>{renderNode(child, context, highlights, marks)}</Fragment>
   ));
 }
 
@@ -398,10 +426,7 @@ function renderTextLeaf(
 }
 
 function renderSegment(segment: HighlightedLeafSegment) {
-  const className = [
-    segment.marks.bold ? "font-semibold" : "",
-    segment.marks.italic ? "italic" : "",
-  ]
+  const className = [segment.marks.bold ? "font-semibold" : "", segment.marks.italic ? "italic" : ""]
     .filter(Boolean)
     .join(" ");
 
@@ -420,56 +445,53 @@ function renderSegment(segment: HighlightedLeafSegment) {
   );
 }
 
-function getHighlightCoverageState(
-    selection: { start: number; end: number },
-    annotations: AnnotationDTO[],
-) {
-    const clipped = annotations
-        .filter(
-        (ann) =>
-            ann.type === "highlight" &&
-            selection.start < ann.range_end &&
-            ann.range_start < selection.end,
-        )
-        .map((ann) => ({
-        start: Math.max(selection.start, ann.range_start),
-        end: Math.min(selection.end, ann.range_end),
-        }))
-        .filter((seg) => seg.end > seg.start);
+function getHighlightCoverageState(selection: { start: number; end: number }, annotations: AnnotationDTO[]) {
+  const clipped = annotations
+    .filter(
+      (ann) =>
+        ann.type === "highlight" &&
+        selection.start < ann.range_end &&
+        ann.range_start < selection.end,
+    )
+    .map((ann) => ({
+      start: Math.max(selection.start, ann.range_start),
+      end: Math.min(selection.end, ann.range_end),
+    }))
+    .filter((seg) => seg.end > seg.start);
 
-    const canRemoveHighlight = clipped.length > 0;
+  const canRemoveHighlight = clipped.length > 0;
 
-    if (clipped.length === 0) {
-        return {
-        canAddHighlight: true,
-        canRemoveHighlight: false,
-        };
-    }
-
-    clipped.sort((a, b) => a.start - b.start);
-
-    const merged: Array<{ start: number; end: number }> = [];
-    for (const seg of clipped) {
-        const last = merged[merged.length - 1];
-        if (!last || seg.start > last.end) {
-        merged.push({ ...seg });
-        } else {
-        last.end = Math.max(last.end, seg.end);
-        }
-    }
-
-    let covered = 0;
-    for (const seg of merged) {
-        covered += seg.end - seg.start;
-    }
-
-    const total = selection.end - selection.start;
-    const canAddHighlight = covered < total;
-
+  if (clipped.length === 0) {
     return {
-        canAddHighlight,
-        canRemoveHighlight,
+      canAddHighlight: true,
+      canRemoveHighlight: false,
     };
+  }
+
+  clipped.sort((a, b) => a.start - b.start);
+
+  const merged: Array<{ start: number; end: number }> = [];
+  for (const seg of clipped) {
+    const last = merged[merged.length - 1];
+    if (!last || seg.start > last.end) {
+      merged.push({ ...seg });
+    } else {
+      last.end = Math.max(last.end, seg.end);
+    }
+  }
+
+  let covered = 0;
+  for (const seg of merged) {
+    covered += seg.end - seg.start;
+  }
+
+  const total = selection.end - selection.start;
+  const canAddHighlight = covered < total;
+
+  return {
+    canAddHighlight,
+    canRemoveHighlight,
+  };
 }
 
 function getSelectionRawRange(root: HTMLElement): SelectionRange | null {
@@ -542,36 +564,36 @@ function firstTextDescendant(node: Node): globalThis.Text | null {
 }
 
 function computeDesktopToolbarPosition(range: Range) {
-    const rect = range.getBoundingClientRect();
-  
-    const toolbarWidth = 240;
-    const toolbarHeight = 44;
-    const gap = 10;
-    const viewportPadding = 8;
-  
-    let left = rect.left + rect.width / 2;
-    let top = rect.top - toolbarHeight - gap;
-  
-    if (top < viewportPadding) {
-      top = rect.bottom + gap;
-    }
-  
-    const minLeft = viewportPadding + toolbarWidth / 2;
-    const maxLeft = window.innerWidth - viewportPadding - toolbarWidth / 2;
-  
-    left = Math.max(minLeft, Math.min(maxLeft, left));
-  
-    return { top, left };
+  const rect = range.getBoundingClientRect();
+
+  const toolbarWidth = 240;
+  const toolbarHeight = 44;
+  const gap = 10;
+  const viewportPadding = 8;
+
+  let left = rect.left + rect.width / 2;
+  let top = rect.top - toolbarHeight - gap;
+
+  if (top < viewportPadding) {
+    top = rect.bottom + gap;
+  }
+
+  const minLeft = viewportPadding + toolbarWidth / 2;
+  const maxLeft = window.innerWidth - viewportPadding - toolbarWidth / 2;
+
+  left = Math.max(minLeft, Math.min(maxLeft, left));
+
+  return { top, left };
 }
 
 function isRangeVisibleInViewport(range: Range) {
-    const rect = range.getBoundingClientRect();
-  
-    if (rect.width === 0 && rect.height === 0) return false;
-  
-    const viewportTop = 16;
-    const viewportBottom = window.innerHeight - 16;
-    const rectCenterY = rect.top + rect.height / 2;
-  
-    return rectCenterY >= viewportTop && rectCenterY <= viewportBottom;
+  const rect = range.getBoundingClientRect();
+
+  if (rect.width === 0 && rect.height === 0) return false;
+
+  const viewportTop = 16;
+  const viewportBottom = window.innerHeight - 16;
+  const rectCenterY = rect.top + rect.height / 2;
+
+  return rectCenterY >= viewportTop && rectCenterY <= viewportBottom;
 }
