@@ -15,12 +15,16 @@ import { startChatStream } from "@/lib/chat-stream";
 import { getConversationTokenSum } from "@/lib/conversation-token-sum";
 import {
   createHighlightAnnotation,
-  deleteAnnotation,
   groupAnnotationsByMessageId,
   listConversationAnnotations,
   type AnnotationDTO,
   removeHighlightRange,
 } from "@/lib/annotations";
+
+import {
+  applyOptimisticHighlightAdd,
+  applyOptimisticHighlightRemove,
+} from "@/components/chat/richtext/highlight-optimistic";
 
 type Participant = { id: string; name: string };
 
@@ -107,6 +111,10 @@ export function ChatShell() {
     Record<string, Record<string, AnnotationDTO[]>>
   >({});
 
+  const [mobileSelectionToolbarVisible, setMobileSelectionToolbarVisible] = useState(false);
+
+  const footerRef = useRef<HTMLDivElement | null>(null);
+  const [footerHeight, setFooterHeight] = useState(0);
   const pendingMessagesRef = useRef<Msg[]>([]);
   const pendingSelectedModelRef = useRef<string | null>(null);
   const threadRef = useRef<HTMLDivElement | null>(null);
@@ -210,6 +218,22 @@ export function ChatShell() {
     setPendingMessages([]);
     setPendingSelectedModel(null);
   }, [activeConversationId]);
+
+  useEffect(() => {
+    const el = footerRef.current;
+    if (!el) return;
+  
+    const update = () => {
+      setFooterHeight(el.getBoundingClientRect().height);
+    };
+  
+    update();
+  
+    const ro = new ResizeObserver(() => update());
+    ro.observe(el);
+  
+    return () => ro.disconnect();
+  }, []);
 
   function handleThreadScroll() {
     const el = threadRef.current;
@@ -697,7 +721,10 @@ export function ChatShell() {
               <div
                 ref={threadRef}
                 onScroll={handleThreadScroll}
-                className="min-h-0 flex-1 overflow-y-auto px-4 py-6 md:px-6"
+                className={[
+                  "min-h-0 flex-1 overflow-y-auto px-4 py-6 md:px-6",
+                  mobileSelectionToolbarVisible ? "pb-40 md:pb-6" : "pb-6 md:pb-6",
+                ].join(" ")}
               >
                 <div className="mx-auto w-full max-w-3xl">
                   {activeConversationId ? (
@@ -726,52 +753,70 @@ export function ChatShell() {
                         onCreateHighlight={async (messageId, range) => {
                           if (!token || !activeConversationId) return;
 
-                          const res = await createHighlightAnnotation(token, {
-                            message_id: messageId,
-                            conv_id: activeConversationId,
-                            range_start: range.start,
-                            range_end: range.end,
-                            bg_color: "#FACC15",
-                          });
-
                           setAnnotationsByConversation((prev) => {
                             const currentConv = prev[activeConversationId] ?? {};
                             const currentMsg = currentConv[messageId] ?? [];
-
-                            const nextAnnotation: AnnotationDTO = {
-                              id: res.id,
-                              message_id: messageId,
-                              conv_id: activeConversationId,
-                              type: "highlight",
-                              range_start: range.start,
-                              range_end: range.end,
-                              user_note: "",
-                              bg_color: "#FACC15",
-                              extra_attrs: {},
-                            };
 
                             return {
                               ...prev,
                               [activeConversationId]: {
                                 ...currentConv,
-                                [messageId]: [...currentMsg, nextAnnotation],
+                                [messageId]: applyOptimisticHighlightAdd(
+                                  currentMsg,
+                                  messageId,
+                                  activeConversationId,
+                                  range,
+                                ),
                               },
                             };
                           });
+
+                          try {
+                            await createHighlightAnnotation(token, {
+                              message_id: messageId,
+                              conv_id: activeConversationId,
+                              range_start: range.start,
+                              range_end: range.end,
+                              bg_color: "#FACC15",
+                            });
+                          } catch (err) {
+                            console.error("Failed to persist highlight add:", err);
+                          }
                         }}
-                        onRemoveHighlightRange = {async (messageId, range) => {
+                        onRemoveHighlightRange={async (messageId, range) => {
                           if (!token || !activeConversationId) return;
-                        
-                          await removeHighlightRange(token, {
-                            message_id: messageId,
-                            conv_id: activeConversationId,
-                            range_start: range.start,
-                            range_end: range.end,
+
+                          setAnnotationsByConversation((prev) => {
+                            const currentConv = prev[activeConversationId] ?? {};
+                            const currentMsg = currentConv[messageId] ?? [];
+
+                            return {
+                              ...prev,
+                              [activeConversationId]: {
+                                ...currentConv,
+                                [messageId]: applyOptimisticHighlightRemove(
+                                  currentMsg,
+                                  messageId,
+                                  activeConversationId,
+                                  range,
+                                ),
+                              },
+                            };
                           });
-                        
-                          const currentMessages = messagesByConversation[activeConversationId] ?? [];
-                          await loadConversationAnnotations(activeConversationId, currentMessages);
+
+                          try {
+                            await removeHighlightRange(token, {
+                              message_id: messageId,
+                              conv_id: activeConversationId,
+                              range_start: range.start,
+                              range_end: range.end,
+                            });
+                          } catch (err) {
+                            console.error("Failed to persist highlight removal:", err);
+                          }
                         }}
+                        onSelectionToolbarVisibleChange={setMobileSelectionToolbarVisible}
+                        mobileFooterOffset={footerHeight}
                       />
                       <div className="h-6" />
                     </>
@@ -779,7 +824,10 @@ export function ChatShell() {
                 </div>
               </div>
 
-              <div className="border-t border-[color:var(--border-0)] bg-[color:var(--bg-0)] px-4 py-3 md:px-6">
+              <div
+                ref={footerRef}
+                className="border-t border-[color:var(--border-0)] bg-[color:var(--bg-0)] px-4 py-3 md:px-6"
+              >
                 <div className="mx-auto w-full max-w-3xl">
                   {(activeSelectedModel || activeConversationId) && (
                     <div className="mb-2 flex flex-wrap items-center gap-2">

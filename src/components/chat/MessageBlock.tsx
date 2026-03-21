@@ -19,11 +19,15 @@ export function MessageBlock({
   annotations,
   onCreateHighlight,
   onRemoveHighlightRange,
+  onSelectionToolbarVisibleChange,
+  mobileFooterOffset,
 }: {
   msg: Msg;
   annotations: AnnotationDTO[];
   onCreateHighlight: (range: { start: number; end: number }) => Promise<void>;
   onRemoveHighlightRange: (range: { start: number; end: number }) => Promise<void>;
+  onSelectionToolbarVisibleChange?: (visible: boolean) => void;
+  mobileFooterOffset?: number;
 }) {
   const isUser = msg.role === "user";
   const isStreaming = msg.status === "streaming";
@@ -121,6 +125,8 @@ export function MessageBlock({
                   annotations={annotations}
                   onCreateHighlight={onCreateHighlight}
                   onRemoveHighlightRange={onRemoveHighlightRange}
+                  onSelectionToolbarVisibleChange={onSelectionToolbarVisibleChange}
+                  mobileFooterOffset={mobileFooterOffset}
                 />
               ) : !isUser && isStreaming ? (
                 <StreamingPlaceholder />

@@ -16,11 +16,18 @@ export function MessageList({
   annotationsByMessageId,
   onCreateHighlight,
   onRemoveHighlightRange,
+  onSelectionToolbarVisibleChange,
+  mobileFooterOffset,
 }: {
   messages: Msg[];
   annotationsByMessageId: Record<string, AnnotationDTO[]>;
   onCreateHighlight: (messageId: string, range: { start: number; end: number }) => Promise<void>;
-  onRemoveHighlightRange: ( messageId: string, range: { start: number; end: number }, ) => Promise<void>;
+  onRemoveHighlightRange: (
+    messageId: string,
+    range: { start: number; end: number },
+  ) => Promise<void>;
+  onSelectionToolbarVisibleChange?: (visible: boolean) => void;
+  mobileFooterOffset?: number;
 }) {
   return (
     <div className="space-y-4">
@@ -30,7 +37,9 @@ export function MessageList({
           msg={msg}
           annotations={annotationsByMessageId[msg.id] ?? []}
           onCreateHighlight={(range) => onCreateHighlight(msg.id, range)}
-          onRemoveHighlightRange={(annotationId) => onRemoveHighlightRange(msg.id, annotationId)}
+          onRemoveHighlightRange={(range) => onRemoveHighlightRange(msg.id, range)}
+          onSelectionToolbarVisibleChange={onSelectionToolbarVisibleChange}
+          mobileFooterOffset={mobileFooterOffset}
         />
       ))}
     </div>

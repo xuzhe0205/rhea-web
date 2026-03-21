@@ -23,6 +23,8 @@ type Props = {
     annotations: AnnotationDTO[];
     onCreateHighlight: (range: { start: number; end: number }) => Promise<void>;
     onRemoveHighlightRange: (range: { start: number; end: number }) => Promise<void>;
+    onSelectionToolbarVisibleChange?: (visible: boolean) => void;
+    mobileFooterOffset?: number;
 };
 
 type RenderContext = {
@@ -34,6 +36,8 @@ const HIGHLIGHT_STYLE = "rgba(250, 204, 21, 0.30)";
 export function AnnotatedMarkdownMessage(props: Props) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [selection, setSelection] = useState<SelectionRange | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
+  const [toolbarPosition, setToolbarPosition] = useState<{ top: number; left: number } | null>(null);
 
   const highlightRanges = useMemo(
     () => toHighlightRanges(props.annotations),
@@ -67,46 +71,145 @@ export function AnnotatedMarkdownMessage(props: Props) {
 
   useEffect(() => {
     function handleSelectionChange() {
-      const root = rootRef.current;
-      if (!root) return;
-
-      const next = getSelectionRawRange(root);
-      setSelection(next);
+        const root = rootRef.current;
+        if (!root) return;
+      
+        const domSelection = window.getSelection();
+        if (!domSelection || domSelection.rangeCount === 0 || domSelection.isCollapsed) {
+          setSelection(null);
+          setToolbarPosition(null);
+          return;
+        }
+      
+        const range = domSelection.getRangeAt(0);
+        const next = getSelectionRawRange(root);
+      
+        if (!next) {
+          setSelection(null);
+          setToolbarPosition(null);
+          return;
+        }
+      
+        setSelection(next);
+      
+        if (!isMobile) {
+          updateToolbarFromCurrentSelection();
+        } else {
+          setToolbarPosition(null);
+        }
     }
 
     document.addEventListener("selectionchange", handleSelectionChange);
     return () => document.removeEventListener("selectionchange", handleSelectionChange);
   }, []);
 
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 767px)");
+  
+    const sync = () => setIsMobile(mq.matches);
+    sync();
+  
+    const handler = () => sync();
+    mq.addEventListener("change", handler);
+  
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+
+  useEffect(() => {
+    if (!props.onSelectionToolbarVisibleChange) return;
+    if (!isMobile) {
+      props.onSelectionToolbarVisibleChange(false);
+      return;
+    }
+  
+    props.onSelectionToolbarVisibleChange(!!selection);
+  }, [isMobile, selection, props]);
+
+  useEffect(() => {
+    if (isMobile || !selection) return;
+  
+    let frame = 0;
+  
+    const scheduleUpdate = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        updateToolbarFromCurrentSelection();
+      });
+    };
+  
+    window.addEventListener("scroll", scheduleUpdate, true);
+    window.addEventListener("resize", scheduleUpdate);
+  
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", scheduleUpdate, true);
+      window.removeEventListener("resize", scheduleUpdate);
+    };
+  }, [isMobile, selection]);
+
+  function updateToolbarFromCurrentSelection() {
+    const root = rootRef.current;
+    if (!root || isMobile) return;
+  
+    const domSelection = window.getSelection();
+    if (!domSelection || domSelection.rangeCount === 0 || domSelection.isCollapsed) {
+      setToolbarPosition(null);
+      return;
+    }
+  
+    const range = domSelection.getRangeAt(0);
+  
+    if (!root.contains(range.commonAncestorContainer)) {
+      setToolbarPosition(null);
+      return;
+    }
+  
+    if (!isRangeVisibleInViewport(range)) {
+      setToolbarPosition(null);
+      return;
+    }
+  
+    setToolbarPosition(computeDesktopToolbarPosition(range));
+  }
+
   return (
     <div className="relative">
-      <HighlightToolbar
-        visible={!!selection}
-        canAddHighlight={highlightCoverage.canAddHighlight}
-        canRemoveHighlight={highlightCoverage.canRemoveHighlight}
-        onHighlight={() => {
+        <HighlightToolbar
+            visible={isMobile ? !!selection : !!selection && !!toolbarPosition}
+            isMobile={isMobile}
+            position={toolbarPosition}
+            canAddHighlight={highlightCoverage.canAddHighlight}
+            canRemoveHighlight={highlightCoverage.canRemoveHighlight}
+            onHighlight={() => {
             if (!selection) return;
             void props.onCreateHighlight(selection).then(() => {
-            window.getSelection()?.removeAllRanges();
-            setSelection(null);
+                window.getSelection()?.removeAllRanges();
+                setSelection(null);
+                setToolbarPosition(null);
             });
-        }}
-        onRemove={() => {
+            }}
+            onRemove={() => {
             if (!selection) return;
             void props.onRemoveHighlightRange(selection).then(() => {
-            window.getSelection()?.removeAllRanges();
-            setSelection(null);
+                window.getSelection()?.removeAllRanges();
+                setSelection(null);
+                setToolbarPosition(null);
             });
-        }}
-        onDismiss={() => {
-            window.getSelection()?.removeAllRanges();
-            setSelection(null);
-        }}
-      />
+            }}
+            onDismiss={() => {
+                window.getSelection()?.removeAllRanges();
+                setSelection(null);
+                setToolbarPosition(null);
+            }}
+            mobileFooterOffset={props.mobileFooterOffset}
+        />
 
-      <div ref={rootRef} className="rhea-markdown text-[14px] leading-6 text-[color:var(--text-0)]">
-        {rendered.node}
-      </div>
+        <div
+            ref={rootRef}
+            className="rhea-markdown text-[14px] leading-6 text-[color:var(--text-0)]"
+        >
+            {rendered.node}
+        </div>
     </div>
   );
 }
@@ -436,4 +539,39 @@ function firstTextDescendant(node: Node): globalThis.Text | null {
   }
 
   return null;
+}
+
+function computeDesktopToolbarPosition(range: Range) {
+    const rect = range.getBoundingClientRect();
+  
+    const toolbarWidth = 240;
+    const toolbarHeight = 44;
+    const gap = 10;
+    const viewportPadding = 8;
+  
+    let left = rect.left + rect.width / 2;
+    let top = rect.top - toolbarHeight - gap;
+  
+    if (top < viewportPadding) {
+      top = rect.bottom + gap;
+    }
+  
+    const minLeft = viewportPadding + toolbarWidth / 2;
+    const maxLeft = window.innerWidth - viewportPadding - toolbarWidth / 2;
+  
+    left = Math.max(minLeft, Math.min(maxLeft, left));
+  
+    return { top, left };
+}
+
+function isRangeVisibleInViewport(range: Range) {
+    const rect = range.getBoundingClientRect();
+  
+    if (rect.width === 0 && rect.height === 0) return false;
+  
+    const viewportTop = 16;
+    const viewportBottom = window.innerHeight - 16;
+    const rectCenterY = rect.top + rect.height / 2;
+  
+    return rectCenterY >= viewportTop && rectCenterY <= viewportBottom;
 }
