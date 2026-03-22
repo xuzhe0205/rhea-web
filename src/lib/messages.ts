@@ -8,6 +8,7 @@ export type MessageDTO = {
   created_at?: string;
   is_favorite?: boolean;
   favorited_at?: string | null;
+  favorite_label?: string | null;
 };
 
 export type FavoriteMessageDTO = {
@@ -20,6 +21,7 @@ export type FavoriteMessageDTO = {
   createdAt?: string;
   favorited_at?: string | null;
   favoritedAt?: string | null;
+  favorite_label?: string | null;
 };
 
 export async function listConversationMessages(
@@ -77,6 +79,21 @@ export async function listFavoriteJumpMessages(
     {
       method: "GET",
       token,
+    },
+  );
+}
+
+export async function patchMessageFavoriteLabel(
+  token: string,
+  messageId: string,
+  favoriteLabel: string,
+) {
+  return apiFetch<{ message_id: string; favorite_label: string | null; updated: boolean }>(
+    `/v1/messages/${messageId}/favorite-label`,
+    {
+      method: "PATCH",
+      token,
+      body: JSON.stringify({ favorite_label: favoriteLabel }),
     },
   );
 }

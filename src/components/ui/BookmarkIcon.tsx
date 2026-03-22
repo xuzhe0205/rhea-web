@@ -10,8 +10,8 @@ export function BookmarkIcon({ filled, busy, className = "" }: BookmarkIconProps
   if (busy) {
     return (
       <svg
-        width="15"
-        height="15"
+        width="18"
+        height="18"
         viewBox="0 0 24 24"
         aria-hidden="true"
         className={`animate-pulse ${className}`}
@@ -27,7 +27,7 @@ export function BookmarkIcon({ filled, busy, className = "" }: BookmarkIconProps
 
   if (filled) {
     return (
-      <svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true" className={className}>
+      <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" className={className}>
         <path
           d="M7 4.75C7 4.33579 7.33579 4 7.75 4H16.25C16.6642 4 17 4.33579 17 4.75V19L12 15.75L7 19V4.75Z"
           fill="currentColor"
@@ -37,7 +37,7 @@ export function BookmarkIcon({ filled, busy, className = "" }: BookmarkIconProps
   }
 
   return (
-    <svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true" className={className}>
+    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" className={className}>
       <path
         d="M7 4.75C7 4.33579 7.33579 4 7.75 4H16.25C16.6642 4 17 4.33579 17 4.75V19L12 15.75L7 19V4.75Z"
         fill="none"

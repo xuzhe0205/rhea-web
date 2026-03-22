@@ -15,6 +15,7 @@ import {
   listFavoriteMessages,
   listFavoriteJumpMessages,
   patchMessageFavorite,
+  patchMessageFavoriteLabel,
   type FavoriteMessageDTO,
 } from "@/lib/messages";
 import { startChatStream } from "@/lib/chat-stream";
@@ -32,6 +33,8 @@ import {
   applyOptimisticHighlightRemove,
 } from "@/components/chat/richtext/highlight-optimistic";
 
+import { FavoriteLabelPopup } from "@/components/shell/FavoriteLabelPopup";
+
 type Participant = { id: string; name: string };
 
 type Msg = {
@@ -40,6 +43,7 @@ type Msg = {
   content: string;
   createdAt?: string;
   isFavorite?: boolean;
+  favoriteLabel?: string | null;
   status?: "streaming" | "done" | "error";
 };
 
@@ -73,6 +77,7 @@ function normalizeMessage(m: any): Msg {
     content: m.content || "",
     createdAt: m.created_at || m.createdAt,
     isFavorite: !!(m.is_favorite ?? m.isFavorite),
+    favoriteLabel: m.favorite_label ?? m.favoriteLabel ?? null,
     status: "done",
   };
 }
@@ -93,10 +98,28 @@ function mapConversations(rows: any[]): Conversation[] {
 }
 
 function getMessagePreview(content: string, maxLen = 48) {
-  const cleaned = (content || "").replace(/\s+/g, " ").trim();
-  if (!cleaned) return "(empty message)";
-  if (cleaned.length <= maxLen) return cleaned;
-  return `${cleaned.slice(0, maxLen).trimEnd()}…`;
+  const plain = (content || "")
+    // fenced code block
+    .replace(/```[\s\S]*?```/g, " ")
+    // inline code
+    .replace(/`([^`]+)`/g, "$1")
+    // images ![alt](url)
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
+    // links [text](url)
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    // headings / blockquote / list markers
+    .replace(/^\s{0,3}(#{1,6}|>|\-|\*|\+)\s+/gm, "")
+    // ordered list markers
+    .replace(/^\s*\d+\.\s+/gm, "")
+    // bold / italic / strikethrough markers
+    .replace(/(\*\*|__|\*|_|~~)/g, "")
+    // collapse whitespace
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!plain) return "(empty message)";
+  if (plain.length <= maxLen) return plain;
+  return `${plain.slice(0, maxLen).trimEnd()}…`;
 }
 
 export function ChatShell() {
@@ -136,6 +159,15 @@ export function ChatShell() {
   const [annotationsByConversation, setAnnotationsByConversation] = useState<
     Record<string, Record<string, AnnotationDTO[]>>
   >({});
+
+  const [favoriteLabelTarget, setFavoriteLabelTarget] = useState<{
+    messageId: string;
+    conversationId: string;
+    previewText: string;
+    initialLabel?: string | null;
+  } | null>(null);
+
+  const [savingFavoriteLabel, setSavingFavoriteLabel] = useState(false);
 
   const [mobileSelectionToolbarVisible, setMobileSelectionToolbarVisible] = useState(false);
 
@@ -305,7 +337,9 @@ export function ChatShell() {
         return {
           id: row.id,
           conversationId,
-          content: getMessagePreview(row.content || ""),
+          content:
+            (row.favorite_label && row.favorite_label.trim()) ||
+            getMessagePreview(row.content || ""),
           conversationTitle: titleById.get(conversationId) ?? "Conversation",
         };
       });
@@ -557,6 +591,7 @@ export function ChatShell() {
     setTogglingFavoriteId(messageId);
 
     const prevMessages = messagesByConversation[activeConversationId] ?? [];
+    const targetMessage = prevMessages.find((m) => m.id === messageId);
 
     setMessagesByConversation((prev) => {
       const current = prev[activeConversationId] ?? [];
@@ -571,6 +606,15 @@ export function ChatShell() {
     try {
       await patchMessageFavorite(token, messageId, nextValue);
       await refreshFavorites();
+
+      if (nextValue && targetMessage) {
+        setFavoriteLabelTarget({
+          messageId,
+          conversationId: activeConversationId,
+          previewText: getMessagePreview(targetMessage.content || "", 72),
+          initialLabel: targetMessage.favoriteLabel ?? "",
+        });
+      }
     } catch (err) {
       console.error("Failed to toggle favorite:", err);
 
@@ -580,6 +624,35 @@ export function ChatShell() {
       }));
     } finally {
       setTogglingFavoriteId(null);
+    }
+  }
+
+  async function saveFavoriteLabel(value: string) {
+    if (!token || !favoriteLabelTarget) return;
+
+    setSavingFavoriteLabel(true);
+
+    try {
+      await patchMessageFavoriteLabel(token, favoriteLabelTarget.messageId, value);
+
+      setMessagesByConversation((prev) => {
+        const convId = favoriteLabelTarget.conversationId;
+        const current = prev[convId] ?? [];
+
+        return {
+          ...prev,
+          [convId]: current.map((m) =>
+            m.id === favoriteLabelTarget.messageId ? { ...m, favoriteLabel: value || null } : m,
+          ),
+        };
+      });
+
+      await refreshFavorites();
+      setFavoriteLabelTarget(null);
+    } catch (err) {
+      console.error("Failed to save favorite label:", err);
+    } finally {
+      setSavingFavoriteLabel(false);
     }
   }
 
@@ -997,6 +1070,15 @@ export function ChatShell() {
           )}
         </div>
       </div>
+
+      <FavoriteLabelPopup
+        open={!!favoriteLabelTarget}
+        initialValue={favoriteLabelTarget?.initialLabel ?? ""}
+        previewText={favoriteLabelTarget?.previewText ?? ""}
+        saving={savingFavoriteLabel}
+        onClose={() => setFavoriteLabelTarget(null)}
+        onSave={saveFavoriteLabel}
+      />
     </div>
   );
 }

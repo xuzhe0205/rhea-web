@@ -102,7 +102,7 @@ export function MessageBlock({
             disabled={favoriteBusy}
             onClick={onToggleFavorite}
             className={[
-              "pointer-events-auto inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full",
+              "pointer-events-auto inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
               "border border-[color:var(--border-0)] bg-[color:var(--bg-1)]/72",
               "transition cursor-pointer",
               "hover:bg-[color:var(--bg-3)] active:scale-[0.97]",
