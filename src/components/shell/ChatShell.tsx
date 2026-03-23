@@ -673,6 +673,8 @@ export function ChatShell() {
 
     const userMessageId = crypto.randomUUID();
     const assistantMessageId = crypto.randomUUID();
+    let currentUserMessageId = userMessageId;
+    let currentAssistantMessageId = assistantMessageId;
     const nowIso = new Date().toISOString();
 
     const isNewConversation = !activeConversationId;
@@ -732,6 +734,22 @@ export function ChatShell() {
 
     let resolvedConversationId: string | undefined;
 
+    const replaceMessageId = (convId: string, tempId: string, realId: string) => {
+      setMessagesByConversation((prev) => {
+        const current = prev[convId] ?? [];
+        if (current.length === 0) return prev;
+
+        return {
+          ...prev,
+          [convId]: current.map((m) => (m.id === tempId ? { ...m, id: realId } : m)),
+        };
+      });
+    };
+
+    const replacePendingMessageId = (tempId: string, realId: string) => {
+      setPendingMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, id: realId } : m)));
+    };
+
     try {
       await startChatStream({
         token,
@@ -740,27 +758,59 @@ export function ChatShell() {
           : { message: trimmed, conversation_id: activeConversationId! },
 
         onEvent: (event) => {
-          if (event.type === "meta" && event.conversationId) {
-            resolvedConversationId = event.conversationId;
+          if (event.type === "meta") {
+            if (event.conversationId) {
+              resolvedConversationId = event.conversationId;
 
-            if (isNewConversation) {
-              const realId = event.conversationId;
+              if (isNewConversation) {
+                const realId = event.conversationId;
 
-              setMessagesByConversation((prev) => {
-                if (prev[realId]?.length) return prev;
+                setMessagesByConversation((prev) => {
+                  if (prev[realId]?.length) return prev;
 
-                return {
-                  ...prev,
-                  [realId]: pendingMessagesRef.current,
-                };
-              });
+                  return {
+                    ...prev,
+                    [realId]: pendingMessagesRef.current,
+                  };
+                });
 
-              if (pendingSelectedModelRef.current) {
-                setSelectedModelByConversation((prev) => ({
-                  ...prev,
-                  [realId]: pendingSelectedModelRef.current!,
-                }));
+                if (pendingSelectedModelRef.current) {
+                  setSelectedModelByConversation((prev) => ({
+                    ...prev,
+                    [realId]: pendingSelectedModelRef.current!,
+                  }));
+                }
               }
+            }
+
+            const convId = resolvedConversationId || activeConversationId || undefined;
+
+            if (event.userMessageId) {
+              if (isNewConversation) {
+                replacePendingMessageId(currentUserMessageId, event.userMessageId);
+              }
+              if (convId) {
+                replaceMessageId(convId, currentUserMessageId, event.userMessageId);
+              }
+              currentUserMessageId = event.userMessageId;
+            }
+
+            if (event.assistantMessageId) {
+              if (isNewConversation) {
+                replacePendingMessageId(currentAssistantMessageId, event.assistantMessageId);
+              }
+              if (convId) {
+                replaceMessageId(convId, currentAssistantMessageId, event.assistantMessageId);
+              }
+              currentAssistantMessageId = event.assistantMessageId;
+            }
+
+            if (event.title && event.conversationId) {
+              setConversations((prev) =>
+                prev.map((c) =>
+                  c.id === event.conversationId ? { ...c, title: event.title! } : c,
+                ),
+              );
             }
 
             return;
@@ -790,7 +840,7 @@ export function ChatShell() {
             if (isNewConversation) {
               setPendingMessages((prev) =>
                 prev.map((m) =>
-                  m.id === assistantMessageId
+                  m.id === currentAssistantMessageId
                     ? { ...m, content: m.content + event.text, status: "streaming" }
                     : m,
                 ),
@@ -802,7 +852,7 @@ export function ChatShell() {
                 return {
                   ...prev,
                   [activeConversationId!]: current.map((m) =>
-                    m.id === assistantMessageId
+                    m.id === currentAssistantMessageId
                       ? { ...m, content: m.content + event.text, status: "streaming" }
                       : m,
                   ),
@@ -816,7 +866,9 @@ export function ChatShell() {
           if (event.type === "done") {
             if (isNewConversation) {
               setPendingMessages((prev) =>
-                prev.map((m) => (m.id === assistantMessageId ? { ...m, status: "done" } : m)),
+                prev.map((m) =>
+                  m.id === currentAssistantMessageId ? { ...m, status: "done" } : m,
+                ),
               );
             } else {
               setMessagesByConversation((prev) => {
@@ -825,7 +877,30 @@ export function ChatShell() {
                 return {
                   ...prev,
                   [activeConversationId!]: current.map((m) =>
-                    m.id === assistantMessageId ? { ...m, status: "done" } : m,
+                    m.id === currentAssistantMessageId ? { ...m, status: "done" } : m,
+                  ),
+                };
+              });
+            }
+
+            return;
+          }
+
+          if (event.type === "error") {
+            if (isNewConversation) {
+              setPendingMessages((prev) =>
+                prev.map((m) =>
+                  m.id === currentAssistantMessageId ? { ...m, status: "error" } : m,
+                ),
+              );
+            } else {
+              setMessagesByConversation((prev) => {
+                const current = prev[activeConversationId!] ?? [];
+
+                return {
+                  ...prev,
+                  [activeConversationId!]: current.map((m) =>
+                    m.id === currentAssistantMessageId ? { ...m, status: "error" } : m,
                   ),
                 };
               });
@@ -864,8 +939,6 @@ export function ChatShell() {
             }));
           }
 
-          // 关键修复：这里先不要清空 pendingMessages / pendingSelectedModel
-          // 否则当前还停留在 / 时，activeMessages 仍走 pendingMessages，会导致 UI 瞬间清空。
           router.replace(`/c/${finalConversationId}`);
           void loadConversationTokenSum(finalConversationId, true);
         }

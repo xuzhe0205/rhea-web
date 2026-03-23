@@ -9,7 +9,13 @@ export type ChatStreamEvent =
   | { type: "delta"; text: string }
   | { type: "done" }
   | { type: "error"; error: string }
-  | { type: "meta"; conversationId?: string }
+  | {
+      type: "meta";
+      conversationId?: string;
+      userMessageId?: string;
+      assistantMessageId?: string;
+      title?: string;
+    }
   | { type: "model"; value: string };
 
 type StartChatStreamArgs = {
@@ -25,15 +31,9 @@ const MODEL_METADATA_SUFFIX = "::";
 function tryParseModelMetadata(text: string): string | null {
   const trimmed = text.trim();
 
-  if (
-    trimmed.startsWith(MODEL_METADATA_PREFIX) &&
-    trimmed.endsWith(MODEL_METADATA_SUFFIX)
-  ) {
+  if (trimmed.startsWith(MODEL_METADATA_PREFIX) && trimmed.endsWith(MODEL_METADATA_SUFFIX)) {
     return trimmed
-      .slice(
-        MODEL_METADATA_PREFIX.length,
-        trimmed.length - MODEL_METADATA_SUFFIX.length,
-      )
+      .slice(MODEL_METADATA_PREFIX.length, trimmed.length - MODEL_METADATA_SUFFIX.length)
       .trim();
   }
 
@@ -113,8 +113,10 @@ export async function startChatStream({
         const parsed = JSON.parse(data);
         onEvent({
           type: "meta",
-          conversationId:
-            parsed.conversation_id || parsed.conversationId || undefined,
+          conversationId: parsed.conversation_id || parsed.conversationId || undefined,
+          userMessageId: parsed.user_message_id || parsed.userMessageId || undefined,
+          assistantMessageId: parsed.assistant_message_id || parsed.assistantMessageId || undefined,
+          title: parsed.title || undefined,
         });
       } catch {
         onEvent({ type: "meta" });
