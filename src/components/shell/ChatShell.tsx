@@ -9,7 +9,7 @@ import { Composer } from "@/components/chat/Composer";
 import { ModelBadge } from "@/components/chat/ModelBadge";
 import { TokenBadge } from "@/components/chat/TokenBadge";
 import { useAuth } from "@/context/AuthContext";
-import { listConversations } from "@/lib/conversations";
+import { listConversations, patchConversationPin } from "@/lib/conversations";
 import {
   listConversationMessages,
   listFavoriteMessages,
@@ -51,6 +51,8 @@ type Conversation = {
   id: string;
   title: string;
   updatedAt?: string;
+  isPinned?: boolean;
+  pinnedAt?: string | null;
 };
 
 type FavoriteItem = {
@@ -70,6 +72,10 @@ function normalizeUpdatedAt(c: any) {
   return c.updatedAt || c.updated_at || c.updatedAtIso || c.updated_at_iso;
 }
 
+function normalizePinnedAt(c: any) {
+  return c.pinnedAt || c.pinned_at || c.pinnedAtIso || c.pinned_at_iso || null;
+}
+
 function normalizeMessage(m: any): Msg {
   return {
     id: m.id,
@@ -82,6 +88,29 @@ function normalizeMessage(m: any): Msg {
   };
 }
 
+function sortConversations(items: Conversation[]) {
+  return [...items].sort((a, b) => {
+    const aPinned = !!a.isPinned;
+    const bPinned = !!b.isPinned;
+
+    if (aPinned !== bPinned) {
+      return aPinned ? -1 : 1;
+    }
+
+    if (aPinned && bPinned) {
+      const aPinnedAt = a.pinnedAt ? new Date(a.pinnedAt).getTime() : 0;
+      const bPinnedAt = b.pinnedAt ? new Date(b.pinnedAt).getTime() : 0;
+      if (aPinnedAt !== bPinnedAt) {
+        return bPinnedAt - aPinnedAt;
+      }
+    }
+
+    const aUpdated = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+    const bUpdated = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+    return bUpdated - aUpdated;
+  });
+}
+
 function sortMessagesAsc(xs: Msg[]) {
   return [...xs].sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""));
 }
@@ -91,29 +120,22 @@ function mapConversations(rows: any[]): Conversation[] {
     id: c.id,
     title: normalizeConversationTitle(c),
     updatedAt: normalizeUpdatedAt(c),
+    isPinned: !!(c.is_pinned ?? c.isPinned),
+    pinnedAt: normalizePinnedAt(c),
   }));
 
-  mapped.sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
-  return mapped;
+  return sortConversations(mapped);
 }
 
 function getMessagePreview(content: string, maxLen = 48) {
   const plain = (content || "")
-    // fenced code block
     .replace(/```[\s\S]*?```/g, " ")
-    // inline code
     .replace(/`([^`]+)`/g, "$1")
-    // images ![alt](url)
     .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
-    // links [text](url)
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-    // headings / blockquote / list markers
     .replace(/^\s{0,3}(#{1,6}|>|\-|\*|\+)\s+/gm, "")
-    // ordered list markers
     .replace(/^\s*\d+\.\s+/gm, "")
-    // bold / italic / strikethrough markers
     .replace(/(\*\*|__|\*|_|~~)/g, "")
-    // collapse whitespace
     .replace(/\s+/g, " ")
     .trim();
 
@@ -269,9 +291,6 @@ export function ChatShell() {
     streamingConversationId,
   ]);
 
-  // 关键修复：
-  // 当真正进入 /c/[id] 后，再清理新对话期间用到的 pending 状态。
-  // 这样可以避免在 router.replace() 之前先把当前 / 页面展示的 pendingMessages 清空。
   useEffect(() => {
     if (!activeConversationId) return;
     if (pendingMessagesRef.current.length === 0 && pendingSelectedModelRef.current == null) return;
@@ -319,6 +338,34 @@ export function ChatShell() {
       return [];
     } finally {
       setLoadingConvs(false);
+    }
+  }
+
+  async function handleTogglePin(conversationId: string, nextPinned: boolean) {
+    if (!token) return;
+
+    const prevConversations = conversations;
+    const nowIso = new Date().toISOString();
+
+    setConversations((prev) =>
+      sortConversations(
+        prev.map((c) =>
+          c.id === conversationId
+            ? {
+                ...c,
+                isPinned: nextPinned,
+                pinnedAt: nextPinned ? nowIso : null,
+              }
+            : c,
+        ),
+      ),
+    );
+
+    try {
+      await patchConversationPin(token, conversationId, nextPinned);
+    } catch (err) {
+      console.error("Failed to toggle conversation pin:", err);
+      setConversations(prevConversations);
     }
   }
 
@@ -984,6 +1031,7 @@ export function ChatShell() {
           onSelectConversation={onSelectConversation}
           onSelectFavorite={onSelectFavorite}
           onCreateConversation={createConversationLocal}
+          onTogglePin={handleTogglePin}
         />
 
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">

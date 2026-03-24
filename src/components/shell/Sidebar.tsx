@@ -1,10 +1,22 @@
 "use client";
 
+import * as React from "react";
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { FavoriteNavItem } from "./FavoriteNavItem";
 
-type Conversation = { id: string; title: string; updatedAt?: string };
+import { FavoriteNavItem } from "./FavoriteNavItem";
+import { ActionRowButton } from "../ui/ActionRowButton";
+import { ConversationNavItem } from "../shell/ConversationNavItem";
+import { PlusIcon } from "../ui/PlusIcon";
+
+type Conversation = {
+  id: string;
+  title: string;
+  updatedAt?: string;
+  isPinned?: boolean;
+  pinnedAt?: string | null;
+};
 
 type FavoriteItem = {
   id: string;
@@ -25,7 +37,65 @@ export function Sidebar(props: {
   onSelectFavorite: (fav: FavoriteItem) => void;
 
   onCreateConversation: () => void;
+  onTogglePin: (conversationId: string, nextPinned: boolean) => Promise<void> | void;
 }) {
+  const navRef = useRef<HTMLElement | null>(null);
+  const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  const [pendingPinId, setPendingPinId] = useState<string | null>(null);
+  const [followPinnedId, setFollowPinnedId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!followPinnedId) return;
+
+    const navEl = navRef.current;
+    const itemEl = itemRefs.current[followPinnedId];
+
+    if (!navEl || !itemEl) {
+      setFollowPinnedId(null);
+      return;
+    }
+
+    const navRect = navEl.getBoundingClientRect();
+    const itemRect = itemEl.getBoundingClientRect();
+
+    const padding = 12;
+    const above = itemRect.top < navRect.top + padding;
+    const below = itemRect.bottom > navRect.bottom - padding;
+
+    if (above || below) {
+      itemEl.scrollIntoView({
+        block: "nearest",
+        inline: "nearest",
+        behavior: "smooth",
+      });
+    }
+
+    const t = window.setTimeout(() => {
+      setFollowPinnedId(null);
+    }, 320);
+
+    return () => window.clearTimeout(t);
+  }, [props.conversations, followPinnedId]);
+
+  const handleTogglePin = async (conversationId: string, nextPinned: boolean) => {
+    try {
+      setPendingPinId(conversationId);
+
+      if (nextPinned) {
+        setFollowPinnedId(conversationId);
+      } else {
+        setFollowPinnedId(null);
+      }
+
+      await props.onTogglePin(conversationId, nextPinned);
+    } finally {
+      window.setTimeout(() => {
+        setPendingPinId((curr) => (curr === conversationId ? null : curr));
+      }, 220);
+    }
+  };
+
   return (
     <>
       <div
@@ -46,12 +116,11 @@ export function Sidebar(props: {
         ].join(" ")}
       >
         <div className="flex h-full flex-col">
-          {/* Brand */}
           <div className="flex h-16 items-center justify-between px-4">
             <Link
               href="/"
               onClick={props.onClose}
-              className="flex items-center gap-3 cursor-pointer select-none"
+              className="flex cursor-pointer select-none items-center gap-3"
               aria-label="Go to home"
             >
               <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-[10px] border border-[color:var(--border-0)] bg-[color:var(--bg-2)]">
@@ -75,7 +144,7 @@ export function Sidebar(props: {
             </Link>
 
             <button
-              className="md:hidden inline-flex h-9 w-9 items-center justify-center rounded-[var(--radius-md)] border border-[color:var(--border-0)] bg-[color:var(--bg-1)] text-[color:var(--text-0)] hover:bg-[color:var(--bg-3)] transition cursor-pointer"
+              className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-[var(--radius-md)] border border-[color:var(--border-0)] bg-[color:var(--bg-1)] text-[color:var(--text-0)] transition hover:bg-[color:var(--bg-3)] md:hidden"
               onClick={props.onClose}
               aria-label="Close sidebar"
               title="Close sidebar"
@@ -88,14 +157,16 @@ export function Sidebar(props: {
             <div className="h-px w-full bg-[color:var(--border-0)]" />
           </div>
 
-          <nav className="flex-1 overflow-y-auto px-2 py-2">
+          <nav ref={navRef} className="flex-1 overflow-y-auto px-2 py-2">
             <SectionHeader label="Conversations" />
+
             <div className="mb-3 mt-2 px-1">
               <ActionRowButton onClick={props.onCreateConversation}>
                 <PlusIcon />
                 <span>New</span>
               </ActionRowButton>
             </div>
+
             <div className="space-y-1">
               {props.conversations.length === 0 ? (
                 <div className="px-2 py-2 text-xs text-[color:var(--text-2)]">
@@ -103,13 +174,18 @@ export function Sidebar(props: {
                 </div>
               ) : (
                 props.conversations.map((c) => (
-                  <NavItem
+                  <ConversationNavItem
                     key={c.id}
+                    ref={(el) => {
+                      itemRefs.current[c.id] = el;
+                    }}
+                    title={c.title}
                     active={props.activeConversationId === c.id}
+                    pinned={!!c.isPinned}
+                    pinPending={pendingPinId === c.id}
                     onClick={() => props.onSelectConversation(c.id)}
-                  >
-                    {c.title}
-                  </NavItem>
+                    onTogglePin={() => handleTogglePin(c.id, !c.isPinned)}
+                  />
                 ))
               )}
             </div>
@@ -147,17 +223,16 @@ export function Sidebar(props: {
             <NavItem disabled>Research Operator (soon)</NavItem>
           </nav>
 
-          {/* Profile bottom */}
           <div className="border-t border-[color:var(--border-0)] p-3">
             <div className="flex items-center gap-3">
               <div className="flex h-8 w-8 items-center justify-center rounded-full border border-[color:var(--border-0)] bg-[color:var(--bg-2)] text-xs font-medium">
                 N
               </div>
               <div className="min-w-0">
-                <div className="truncate text-sm text-[color:var(--text-0)] select-text">
+                <div className="truncate select-text text-sm text-[color:var(--text-0)]">
                   Account
                 </div>
-                <div className="truncate text-xs text-[color:var(--text-2)] select-text">
+                <div className="truncate select-text text-xs text-[color:var(--text-2)]">
                   Settings &amp; profile
                 </div>
               </div>
@@ -208,31 +283,5 @@ function NavItem(props: {
       ) : null}
       <span className="ml-1 truncate select-text">{props.children}</span>
     </button>
-  );
-}
-
-function ActionRowButton(props: { children: React.ReactNode; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={props.onClick}
-      className={[
-        "inline-flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-sm transition",
-        "font-medium text-[color:var(--text-0)]",
-        "rounded-[var(--radius-md)] border border-[color:var(--border-0)] bg-[color:var(--bg-2)]",
-        "hover:bg-[color:var(--bg-3)] hover:border-[color:var(--text-2)]/30",
-        "shadow-sm",
-      ].join(" ")}
-    >
-      {props.children}
-    </button>
-  );
-}
-
-function PlusIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-    </svg>
   );
 }
