@@ -1,8 +1,21 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Copy, Check } from "lucide-react";
+import { copyTableElement } from "@/lib/tableClipboard";
 import { fromMarkdown } from "mdast-util-from-markdown";
-import type { Root, Content, Parent, Text as MdastText, InlineCode } from "mdast";
+import { gfmFromMarkdown } from "mdast-util-gfm";
+import { gfm as micromarkGfm } from "micromark-extension-gfm";
+import type {
+  Root,
+  Content,
+  Parent,
+  Text as MdastText,
+  InlineCode,
+  Table,
+  TableRow,
+  TableCell,
+} from "mdast";
 import type { AnnotationDTO } from "@/lib/annotations";
 import { HighlightToolbar } from "./HighlightToolbar";
 import {
@@ -57,7 +70,10 @@ export function AnnotatedMarkdownMessage(props: Props) {
   const rendered = useMemo(() => {
     resetLeafCounter();
 
-    const tree = fromMarkdown(props.content) as Root;
+    const tree = fromMarkdown(props.content, {
+      extensions: [micromarkGfm()],
+      mdastExtensions: [gfmFromMarkdown()],
+    }) as Root;
     const context: RenderContext = { leaves: [] };
 
     const node = renderRoot(tree, context, highlightRanges);
@@ -346,6 +362,15 @@ function renderNode(
     case "thematicBreak":
       return <hr className="my-5 border-[color:var(--border-0)]" />;
 
+    case "table":
+      return renderTable(node, context, highlights);
+
+    case "tableRow":
+      return renderTableRow(node, context, highlights);
+
+    case "tableCell":
+      return renderTableCell(node, context, highlights, marks);
+
     case "code":
       return (
         <pre className="my-4 overflow-x-auto rounded-[var(--radius-md)] border border-[color:var(--border-0)] bg-[color:var(--bg-1)] p-4 text-sm">
@@ -365,8 +390,185 @@ function renderChildren(
   marks: MarkdownLeafMark,
 ) {
   return node.children.map((child, index) => (
-    <Fragment key={`${node.type}-${index}`}>{renderNode(child, context, highlights, marks)}</Fragment>
+    <Fragment key={`${node.type}-${index}`}>
+      {renderNode(child, context, highlights, marks)}
+    </Fragment>
   ));
+}
+
+function TableBlock({
+  headerRow,
+  bodyRows,
+  context,
+  highlights,
+}: {
+  headerRow?: TableRow;
+  bodyRows: TableRow[];
+  context: RenderContext;
+  highlights: { id: string; start: number; end: number }[];
+}) {
+  const tableRef = useRef<HTMLTableElement | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    const table = tableRef.current;
+    if (!table) return;
+
+    await copyTableElement(table);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1200);
+  };
+
+  return (
+    <div className="my-4" data-no-annotation="true">
+      <div className="overflow-x-auto rounded-[var(--radius-md)] bg-transparent">
+        <table
+          ref={tableRef}
+          className="w-full overflow-hidden rounded-[var(--radius-md)] border-collapse bg-[color:var(--bg-1)] text-sm"
+        >
+          {headerRow ? (
+            <thead className="bg-black/40">
+              {renderTableRow(headerRow, context, highlights, true)}
+            </thead>
+          ) : null}
+
+          {bodyRows.length > 0 ? (
+            <tbody>
+              {bodyRows.map((row, index) => (
+                <Fragment key={`tbody-row-${index}`}>
+                  {renderTableRow(row, context, highlights, false)}
+                </Fragment>
+              ))}
+            </tbody>
+          ) : null}
+        </table>
+      </div>
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={handleCopy}
+          aria-label={copied ? "Table copied" : "Copy table"}
+          title={copied ? "Copied" : "Copy table"}
+          className={[
+            "inline-flex h-8 w-8 items-center justify-center rounded-lg",
+            "bg-white/[0.03] text-[color:var(--text-1)]",
+            "ring-1 ring-inset ring-white/[0.06]",
+            "transition-all duration-200 ease-out",
+            copied
+              ? "bg-white/[0.08] text-[color:var(--text-0)] ring-white/[0.14]"
+              : "hover:bg-white/[0.06] hover:text-[color:var(--text-0)] hover:ring-white/[0.1]",
+            "active:scale-[0.96]",
+          ].join(" ")}
+        >
+          {copied ? <Check size={15} strokeWidth={2.25} /> : <Copy size={15} strokeWidth={2} />}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function renderTable(
+  node: Table,
+  context: RenderContext,
+  highlights: { id: string; start: number; end: number }[],
+) {
+  const headerRow = node.children[0];
+  const bodyRows = node.children.slice(1);
+
+  return (
+    <TableBlock
+      headerRow={headerRow}
+      bodyRows={bodyRows}
+      context={context}
+      highlights={highlights}
+    />
+  );
+}
+
+function renderTableRow(
+  node: TableRow,
+  context: RenderContext,
+  highlights: { id: string; start: number; end: number }[],
+  isHeader = false,
+) {
+  return (
+    <tr className="border-b border-[color:var(--border-0)] last:border-b-0">
+      {node.children.map((cell, index) => (
+        <Fragment key={`cell-${index}`}>
+          {renderTableCell(cell, context, highlights, {}, isHeader)}
+        </Fragment>
+      ))}
+    </tr>
+  );
+}
+
+function renderTableCell(
+  node: TableCell,
+  context: RenderContext,
+  highlights: { id: string; start: number; end: number }[],
+  marks: MarkdownLeafMark,
+  isHeader = false,
+) {
+  const Tag = isHeader ? "th" : "td";
+
+  return (
+    <Tag
+      className={[
+        "min-w-[140px] border-r border-[color:var(--border-0)] px-4 py-3 text-left align-top last:border-r-0",
+        isHeader ? "font-semibold text-[color:var(--text-0)]" : "text-[color:var(--text-0)]",
+      ].join(" ")}
+      data-no-annotation="true"
+    >
+      {renderChildrenWithoutAnnotation(node)}
+    </Tag>
+  );
+}
+
+function renderChildrenWithoutAnnotation(node: Parent): React.ReactNode {
+  return node.children.map((child, index) => (
+    <Fragment key={`plain-${node.type}-${index}`}>{renderNodeWithoutAnnotation(child)}</Fragment>
+  ));
+}
+
+function renderNodeWithoutAnnotation(node: Content): React.ReactNode {
+  switch (node.type) {
+    case "text":
+      return node.value;
+
+    case "strong":
+      return <strong>{renderChildrenWithoutAnnotation(node)}</strong>;
+
+    case "emphasis":
+      return <em>{renderChildrenWithoutAnnotation(node)}</em>;
+
+    case "inlineCode":
+      return (
+        <code className="rounded bg-[color:var(--bg-1)] px-1.5 py-0.5 text-[13px]">
+          {node.value}
+        </code>
+      );
+
+    case "link":
+      return (
+        <a
+          href={node.url}
+          target="_blank"
+          rel="noreferrer"
+          className="text-[color:var(--accent)] underline underline-offset-2"
+        >
+          {renderChildrenWithoutAnnotation(node)}
+        </a>
+      );
+
+    case "break":
+      return <br />;
+
+    default:
+      if ("children" in node && Array.isArray(node.children)) {
+        return renderChildrenWithoutAnnotation(node as Parent);
+      }
+      return null;
+  }
 }
 
 function renderInlineCode(
@@ -426,7 +628,10 @@ function renderTextLeaf(
 }
 
 function renderSegment(segment: HighlightedLeafSegment) {
-  const className = [segment.marks.bold ? "font-semibold" : "", segment.marks.italic ? "italic" : ""]
+  const className = [
+    segment.marks.bold ? "font-semibold" : "",
+    segment.marks.italic ? "italic" : "",
+  ]
     .filter(Boolean)
     .join(" ");
 
@@ -445,7 +650,10 @@ function renderSegment(segment: HighlightedLeafSegment) {
   );
 }
 
-function getHighlightCoverageState(selection: { start: number; end: number }, annotations: AnnotationDTO[]) {
+function getHighlightCoverageState(
+  selection: { start: number; end: number },
+  annotations: AnnotationDTO[],
+) {
   const clipped = annotations
     .filter(
       (ann) =>
@@ -494,12 +702,25 @@ function getHighlightCoverageState(selection: { start: number; end: number }, an
   };
 }
 
+function isSelectionInsideNoAnnotationArea(range: Range, root: HTMLElement) {
+  const common =
+    range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
+      ? (range.commonAncestorContainer as Element)
+      : range.commonAncestorContainer.parentElement;
+
+  if (!common) return false;
+
+  const blocked = common.closest("[data-no-annotation='true']");
+  return !!blocked && root.contains(blocked);
+}
+
 function getSelectionRawRange(root: HTMLElement): SelectionRange | null {
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null;
 
   const range = selection.getRangeAt(0);
   if (!root.contains(range.commonAncestorContainer)) return null;
+  if (isSelectionInsideNoAnnotationArea(range, root)) return null;
 
   const startInfo = resolveBoundary(root, range.startContainer, range.startOffset);
   const endInfo = resolveBoundary(root, range.endContainer, range.endOffset);
@@ -524,7 +745,9 @@ function resolveBoundary(
   const textNode = getClosestTextNode(container, offset);
   if (!textNode) return null;
 
-  const span = textNode.parentElement?.closest("[data-raw-start][data-raw-end]") as HTMLElement | null;
+  const span = textNode.parentElement?.closest(
+    "[data-raw-start][data-raw-end]",
+  ) as HTMLElement | null;
   if (!span || !root.contains(span)) return null;
 
   const rawStart = Number(span.dataset.rawStart);
