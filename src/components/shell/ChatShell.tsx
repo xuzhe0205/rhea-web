@@ -363,6 +363,7 @@ export function ChatShell() {
 
     try {
       await patchConversationPin(token, conversationId, nextPinned);
+      await refreshConversations();
     } catch (err) {
       console.error("Failed to toggle conversation pin:", err);
       setConversations(prevConversations);
