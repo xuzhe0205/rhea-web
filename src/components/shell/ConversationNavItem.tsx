@@ -24,13 +24,14 @@ export const ConversationNavItem = React.forwardRef<HTMLDivElement, Props>(
     const [hovered, setHovered] = useState(false);
     const [pressing, setPressing] = useState(false);
     const [menuOpen, setMenuOpen] = useState(false);
+    const [openUpward, setOpenUpward] = useState(true);
 
     const timerRef = useRef<number | null>(null);
     const longPressTriggeredRef = useRef(false);
     const touchStartRef = useRef<{ x: number; y: number } | null>(null);
     const rootRef = useRef<HTMLDivElement | null>(null);
 
-    const showPinControl = hovered || pinPending || pinned;
+    const showDesktopPinControl = hovered || pinPending || pinned;
 
     function setMergedRef(node: HTMLDivElement | null) {
       rootRef.current = node;
@@ -93,6 +94,17 @@ export const ConversationNavItem = React.forwardRef<HTMLDivElement, Props>(
       timerRef.current = window.setTimeout(() => {
         longPressTriggeredRef.current = true;
         setPressing(false);
+
+        const el = rootRef.current;
+        if (el) {
+          const rect = el.getBoundingClientRect();
+          const estimatedMenuHeight = 72;
+          const topSpace = rect.top;
+          setOpenUpward(topSpace > estimatedMenuHeight + 16);
+        } else {
+          setOpenUpward(true);
+        }
+
         setMenuOpen(true);
       }, LONG_PRESS_MS);
     };
@@ -155,23 +167,44 @@ export const ConversationNavItem = React.forwardRef<HTMLDivElement, Props>(
             clearLongPress();
           }}
           className={[
-            "relative flex w-full items-center rounded-[var(--radius-md)] px-3 py-2 pr-3 text-left text-sm transition-all duration-200",
-            "text-[color:var(--text-0)]",
+            "relative flex w-full items-center rounded-[var(--radius-md)] px-3 py-2 text-left text-sm transition-all duration-200",
+            "text-[color:var(--text-0)] select-none touch-manipulation",
+            // 手机上要给常亮 pin indicator 预留一点空间；桌面端维持原来
+            pinned ? "pr-10 md:pr-3" : "pr-3",
             active ? "bg-[color:var(--bg-2)]" : "hover:bg-[color:var(--bg-3)]",
             pressing ? "scale-[0.985] bg-[color:var(--bg-2)]" : "",
           ].join(" ")}
         >
-          <span className="ml-1 min-w-0 flex-1 truncate select-text">{title}</span>
+          <span className="ml-1 min-w-0 flex-1 truncate select-none">{title}</span>
 
           {(hovered || pinPending) && (
-            <span className="pointer-events-none absolute right-9 top-1 bottom-1 w-8 bg-gradient-to-l from-[color:var(--bg-2)]/70 to-transparent" />
+            <span className="pointer-events-none absolute right-9 top-1 bottom-1 hidden w-8 bg-gradient-to-l from-[color:var(--bg-2)]/70 to-transparent md:block" />
           )}
         </button>
 
+        {/* Mobile pinned indicator: visible, but not clickable */}
+        {pinned ? (
+          <div className="absolute right-2 top-1/2 -translate-y-1/2 md:hidden pointer-events-none">
+            <span
+              className={[
+                "inline-flex h-7 w-7 items-center justify-center rounded-full border",
+                "border-[color:var(--border-0)] bg-[color:var(--bg-1)]/92 backdrop-blur-sm",
+                "text-[color:var(--accent)] brightness-125 shadow-[0_0_0_1px_rgba(94,124,226,0.10)]",
+              ].join(" ")}
+              aria-hidden="true"
+            >
+              <PinIcon filled />
+            </span>
+          </div>
+        ) : null}
+
+        {/* Desktop clickable pin control */}
         <div
           className={[
-            "absolute right-2 top-1/2 -translate-y-1/2 transition-all duration-200",
-            showPinControl ? "opacity-100 scale-100" : "opacity-0 scale-95 pointer-events-none",
+            "absolute right-2 top-1/2 hidden -translate-y-1/2 transition-all duration-200 md:block",
+            showDesktopPinControl
+              ? "opacity-100 scale-100"
+              : "opacity-0 scale-95 pointer-events-none",
           ].join(" ")}
         >
           <button
@@ -183,7 +216,7 @@ export const ConversationNavItem = React.forwardRef<HTMLDivElement, Props>(
               onTogglePin?.();
             }}
             className={[
-              "hidden md:inline-flex h-7 w-7 items-center justify-center rounded-full border transition-all duration-200",
+              "inline-flex h-7 w-7 items-center justify-center rounded-full border transition-all duration-200",
               "border-[color:var(--border-0)] bg-[color:var(--bg-1)]/92 backdrop-blur-sm",
               pinned
                 ? "text-[color:var(--accent)] brightness-125 shadow-[0_0_0_1px_rgba(94,124,226,0.10)] hover:bg-[color:var(--bg-2)]"
@@ -196,11 +229,16 @@ export const ConversationNavItem = React.forwardRef<HTMLDivElement, Props>(
         </div>
 
         {menuOpen ? (
-          <div className="absolute right-2 top-full z-30 mt-2 md:hidden">
+          <div
+            className={[
+              "absolute right-2 z-30 md:hidden",
+              openUpward ? "bottom-full mb-2" : "top-full mt-2",
+            ].join(" ")}
+          >
             <ActionMenu>
               <ActionMenuItem
                 onClick={handleMenuPinClick}
-                label={pinned ? "取消置顶" : "置顶"}
+                label={pinned ? "Unpin" : "Pin"}
                 icon={
                   pinned ? (
                     <span className="text-[color:var(--accent)]">
@@ -213,16 +251,6 @@ export const ConversationNavItem = React.forwardRef<HTMLDivElement, Props>(
                   )
                 }
               />
-
-              {/* 以后可以直接继续加：
-      <ContextMenuAction
-        showDividerAbove
-        onClick={handleDelete}
-        label="删除"
-        danger
-        icon={<TrashIcon />}
-      />
-      */}
             </ActionMenu>
           </div>
         ) : null}
