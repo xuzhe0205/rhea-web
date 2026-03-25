@@ -4,6 +4,8 @@ import * as React from "react";
 import { useEffect, useRef, useState } from "react";
 import { PinIcon } from "../ui/PinIcon";
 import { PinOffIcon } from "../ui/PinOffIcon";
+import { ActionMenu } from "../ui/ActionMenu";
+import { ActionMenuItem } from "../ui/ActionMenuItem";
 
 type Props = {
   title: string;
@@ -21,12 +23,23 @@ export const ConversationNavItem = React.forwardRef<HTMLDivElement, Props>(
   function ConversationNavItem({ title, active, pinned, pinPending, onClick, onTogglePin }, ref) {
     const [hovered, setHovered] = useState(false);
     const [pressing, setPressing] = useState(false);
+    const [menuOpen, setMenuOpen] = useState(false);
 
     const timerRef = useRef<number | null>(null);
     const longPressTriggeredRef = useRef(false);
     const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+    const rootRef = useRef<HTMLDivElement | null>(null);
 
     const showPinControl = hovered || pinPending || pinned;
+
+    function setMergedRef(node: HTMLDivElement | null) {
+      rootRef.current = node;
+      if (typeof ref === "function") {
+        ref(node);
+      } else if (ref) {
+        ref.current = node;
+      }
+    }
 
     const clearLongPress = () => {
       if (timerRef.current !== null) {
@@ -41,6 +54,36 @@ export const ConversationNavItem = React.forwardRef<HTMLDivElement, Props>(
       return () => clearLongPress();
     }, []);
 
+    useEffect(() => {
+      if (!menuOpen) return;
+
+      const onPointerDown = (e: MouseEvent | TouchEvent) => {
+        const el = rootRef.current;
+        if (!el) return;
+
+        const target = e.target as Node | null;
+        if (target && !el.contains(target)) {
+          setMenuOpen(false);
+        }
+      };
+
+      const onEscape = (e: KeyboardEvent) => {
+        if (e.key === "Escape") {
+          setMenuOpen(false);
+        }
+      };
+
+      document.addEventListener("mousedown", onPointerDown);
+      document.addEventListener("touchstart", onPointerDown);
+      document.addEventListener("keydown", onEscape);
+
+      return () => {
+        document.removeEventListener("mousedown", onPointerDown);
+        document.removeEventListener("touchstart", onPointerDown);
+        document.removeEventListener("keydown", onEscape);
+      };
+    }, [menuOpen]);
+
     const beginLongPress = (clientX: number, clientY: number) => {
       clearLongPress();
       longPressTriggeredRef.current = false;
@@ -50,7 +93,7 @@ export const ConversationNavItem = React.forwardRef<HTMLDivElement, Props>(
       timerRef.current = window.setTimeout(() => {
         longPressTriggeredRef.current = true;
         setPressing(false);
-        onTogglePin?.();
+        setMenuOpen(true);
       }, LONG_PRESS_MS);
     };
 
@@ -66,9 +109,14 @@ export const ConversationNavItem = React.forwardRef<HTMLDivElement, Props>(
       }
     };
 
+    const handleMenuPinClick = () => {
+      setMenuOpen(false);
+      onTogglePin?.();
+    };
+
     return (
       <div
-        ref={ref}
+        ref={setMergedRef}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
         className="group relative"
@@ -82,6 +130,10 @@ export const ConversationNavItem = React.forwardRef<HTMLDivElement, Props>(
           onClick={() => {
             if (longPressTriggeredRef.current) {
               longPressTriggeredRef.current = false;
+              return;
+            }
+            if (menuOpen) {
+              setMenuOpen(false);
               return;
             }
             onClick?.();
@@ -142,6 +194,38 @@ export const ConversationNavItem = React.forwardRef<HTMLDivElement, Props>(
             {pinned && hovered ? <PinOffIcon /> : <PinIcon filled={pinned} />}
           </button>
         </div>
+
+        {menuOpen ? (
+          <div className="absolute right-2 top-full z-30 mt-2 md:hidden">
+            <ActionMenu>
+              <ActionMenuItem
+                onClick={handleMenuPinClick}
+                label={pinned ? "取消置顶" : "置顶"}
+                icon={
+                  pinned ? (
+                    <span className="text-[color:var(--accent)]">
+                      <PinOffIcon />
+                    </span>
+                  ) : (
+                    <span className="text-[color:var(--text-1)]">
+                      <PinIcon filled={false} />
+                    </span>
+                  )
+                }
+              />
+
+              {/* 以后可以直接继续加：
+      <ContextMenuAction
+        showDividerAbove
+        onClick={handleDelete}
+        label="删除"
+        danger
+        icon={<TrashIcon />}
+      />
+      */}
+            </ActionMenu>
+          </div>
+        ) : null}
       </div>
     );
   },
