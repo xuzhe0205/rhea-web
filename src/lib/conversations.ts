@@ -7,6 +7,7 @@ export type ConversationDTO = {
   created_at?: string;
   is_pinned?: boolean;
   pinned_at?: string | null;
+  cumulative_tokens: number;
 };
 
 export async function listConversations(token: string) {
@@ -29,5 +30,12 @@ export async function patchConversationPin(
     method: "PATCH",
     token,
     body: JSON.stringify({ is_pinned: isPinned }),
+  });
+}
+
+export async function getConversation(token: string, conversationId: string) {
+  return apiFetch<ConversationDTO>(`/v1/conversations/${conversationId}`, {
+    method: "GET",
+    token,
   });
 }

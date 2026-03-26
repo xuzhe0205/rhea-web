@@ -9,7 +9,7 @@ import { Composer } from "@/components/chat/Composer";
 import { ModelBadge } from "@/components/chat/ModelBadge";
 import { TokenBadge } from "@/components/chat/TokenBadge";
 import { useAuth } from "@/context/AuthContext";
-import { listConversations, patchConversationPin } from "@/lib/conversations";
+import { listConversations, patchConversationPin, getConversation } from "@/lib/conversations";
 import {
   listConversationMessages,
   listFavoriteMessages,
@@ -19,7 +19,6 @@ import {
   type FavoriteMessageDTO,
 } from "@/lib/messages";
 import { startChatStream } from "@/lib/chat-stream";
-import { getConversationTokenSum } from "@/lib/conversation-token-sum";
 import {
   createHighlightAnnotation,
   groupAnnotationsByMessageId,
@@ -534,10 +533,10 @@ export function ChatShell() {
     setLoadingTokenSumFor(conversationId);
 
     try {
-      const res = await getConversationTokenSum(token, conversationId);
+      const res = await getConversation(token, conversationId);
       setTokenSumByConversation((prev) => ({
         ...prev,
-        [conversationId]: res?.token_sum ?? 0,
+        [conversationId]: res?.cumulative_tokens ?? 0,
       }));
     } catch {
       setTokenSumByConversation((prev) => ({
@@ -546,6 +545,34 @@ export function ChatShell() {
       }));
     } finally {
       setLoadingTokenSumFor((curr) => (curr === conversationId ? null : curr));
+    }
+  }
+
+  async function refreshConversationMeta(conversationId: string) {
+    if (!token || !conversationId) return;
+
+    try {
+      const res = await getConversation(token, conversationId);
+
+      setConversations((prev) =>
+        sortConversations(
+          prev.map((c) =>
+            c.id === conversationId
+              ? {
+                  ...c,
+                  title: res?.title || c.title,
+                }
+              : c,
+          ),
+        ),
+      );
+
+      setTokenSumByConversation((prev) => ({
+        ...prev,
+        [conversationId]: res?.cumulative_tokens ?? 0,
+      }));
+    } catch (err) {
+      console.error("Failed to refresh conversation meta:", err);
     }
   }
 
@@ -971,12 +998,11 @@ export function ChatShell() {
           const finalConversationId = realConversationId;
 
           setMessagesByConversation((prev) => {
-            const alreadyExisting = prev[finalConversationId] ?? [];
             const pending = pendingMessagesRef.current ?? [];
 
             return {
               ...prev,
-              [finalConversationId]: alreadyExisting.length > 0 ? alreadyExisting : pending,
+              [finalConversationId]: pending,
             };
           });
 
@@ -988,7 +1014,7 @@ export function ChatShell() {
           }
 
           router.replace(`/c/${finalConversationId}`);
-          void loadConversationTokenSum(finalConversationId, true);
+          void refreshConversationMeta(finalConversationId);
         }
       }
 
