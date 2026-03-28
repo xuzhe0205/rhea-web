@@ -17,14 +17,17 @@ import type {
   TableCell,
 } from "mdast";
 import type { AnnotationDTO } from "@/lib/annotations";
-import { HighlightToolbar } from "./HighlightToolbar";
+import type { CommentThreadDTO } from "@/lib/comments";
+import { SelectionToolbar } from "./SelectionToolbar";
+import { buildLeaf, resetLeafCounter } from "./highlight-utils";
 import {
-  buildLeaf,
-  resetLeafCounter,
-  splitLeafByHighlights,
+  splitLeafByDecorations,
+  toCommentRanges,
   toHighlightRanges,
-} from "./highlight-utils";
-import type { MarkdownLeaf, MarkdownLeafMark, HighlightedLeafSegment } from "./types";
+  getSelectionSnapshot,
+} from "./comment-utils";
+import type { MarkdownLeaf, MarkdownLeafMark } from "./types";
+import type { DecoratedLeafSegment } from "./comment-types";
 
 type SelectionRange = {
   start: number;
@@ -34,8 +37,14 @@ type SelectionRange = {
 type Props = {
   content: string;
   annotations: AnnotationDTO[];
+  commentThreads: CommentThreadDTO[];
   onCreateHighlight: (range: { start: number; end: number }) => Promise<void>;
   onRemoveHighlightRange: (range: { start: number; end: number }) => Promise<void>;
+  onCreateComment: (
+    range: { start: number; end: number },
+    selectedTextSnapshot: string,
+  ) => Promise<void>;
+  onOpenCommentThread: (threadId: string) => void;
   onSelectionToolbarVisibleChange?: (visible: boolean) => void;
   mobileFooterOffset?: number;
 };
@@ -45,16 +54,22 @@ type RenderContext = {
 };
 
 const HIGHLIGHT_STYLE = "rgba(250, 204, 21, 0.30)";
+const COMMENT_STYLE = "rgba(96, 165, 250, 0.22)";
 
 export function AnnotatedMarkdownMessage(props: Props) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [selection, setSelection] = useState<SelectionRange | null>(null);
+  const [selectionTextSnapshot, setSelectionTextSnapshot] = useState("");
   const [isMobile, setIsMobile] = useState(false);
   const [toolbarPosition, setToolbarPosition] = useState<{ top: number; left: number } | null>(
     null,
   );
 
   const highlightRanges = useMemo(() => toHighlightRanges(props.annotations), [props.annotations]);
+  const commentRanges = useMemo(
+    () => toCommentRanges(props.commentThreads),
+    [props.commentThreads],
+  );
 
   const highlightCoverage = useMemo(() => {
     if (!selection) {
@@ -63,7 +78,6 @@ export function AnnotatedMarkdownMessage(props: Props) {
         canRemoveHighlight: false,
       };
     }
-
     return getHighlightCoverageState(selection, props.annotations);
   }, [props.annotations, selection]);
 
@@ -76,13 +90,17 @@ export function AnnotatedMarkdownMessage(props: Props) {
     }) as Root;
     const context: RenderContext = { leaves: [] };
 
-    const node = renderRoot(tree, context, highlightRanges);
+    const node = renderRoot(
+      tree,
+      context,
+      highlightRanges,
+      commentRanges,
+      isMobile,
+      props.onOpenCommentThread,
+    );
 
-    return {
-      node,
-      leaves: context.leaves,
-    };
-  }, [props.content, highlightRanges]);
+    return { node, leaves: context.leaves };
+  }, [props.content, highlightRanges, commentRanges, isMobile, props.onOpenCommentThread]);
 
   function updateToolbarFromCurrentSelection() {
     const root = rootRef.current;
@@ -116,6 +134,7 @@ export function AnnotatedMarkdownMessage(props: Props) {
     const domSelection = window.getSelection();
     if (!domSelection || domSelection.rangeCount === 0 || domSelection.isCollapsed) {
       setSelection(null);
+      setSelectionTextSnapshot("");
       setToolbarPosition(null);
       return;
     }
@@ -125,11 +144,13 @@ export function AnnotatedMarkdownMessage(props: Props) {
 
     if (!next) {
       setSelection(null);
+      setSelectionTextSnapshot("");
       setToolbarPosition(null);
       return;
     }
 
     setSelection(next);
+    setSelectionTextSnapshot(props.content.slice(next.start, next.end));
 
     if (!isMobile) {
       if (!root.contains(range.commonAncestorContainer)) {
@@ -150,13 +171,10 @@ export function AnnotatedMarkdownMessage(props: Props) {
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 767px)");
-
     const sync = () => setIsMobile(mq.matches);
     sync();
-
     const handler = () => sync();
     mq.addEventListener("change", handler);
-
     return () => mq.removeEventListener("change", handler);
   }, []);
 
@@ -167,7 +185,7 @@ export function AnnotatedMarkdownMessage(props: Props) {
 
     document.addEventListener("selectionchange", handleSelectionChange);
     return () => document.removeEventListener("selectionchange", handleSelectionChange);
-  }, [isMobile]);
+  }, [isMobile, props.content]);
 
   useEffect(() => {
     if (!isMobile) return;
@@ -192,7 +210,7 @@ export function AnnotatedMarkdownMessage(props: Props) {
       }
       document.removeEventListener("touchend", handleTouchEnd, true);
     };
-  }, [isMobile]);
+  }, [isMobile, props.content]);
 
   useEffect(() => {
     if (!props.onSelectionToolbarVisibleChange) return;
@@ -229,17 +247,19 @@ export function AnnotatedMarkdownMessage(props: Props) {
 
   return (
     <div className="relative">
-      <HighlightToolbar
+      <SelectionToolbar
         visible={isMobile ? !!selection : !!selection && !!toolbarPosition}
         isMobile={isMobile}
         position={toolbarPosition}
         canAddHighlight={highlightCoverage.canAddHighlight}
         canRemoveHighlight={highlightCoverage.canRemoveHighlight}
+        canComment={!!selection}
         onHighlight={() => {
           if (!selection) return;
           void props.onCreateHighlight(selection).then(() => {
             window.getSelection()?.removeAllRanges();
             setSelection(null);
+            setSelectionTextSnapshot("");
             setToolbarPosition(null);
           });
         }}
@@ -248,12 +268,25 @@ export function AnnotatedMarkdownMessage(props: Props) {
           void props.onRemoveHighlightRange(selection).then(() => {
             window.getSelection()?.removeAllRanges();
             setSelection(null);
+            setSelectionTextSnapshot("");
+            setToolbarPosition(null);
+          });
+        }}
+        onComment={() => {
+          if (!selection) return;
+          const snapshot = selectionTextSnapshot || getSelectionSnapshot(props.content, selection);
+
+          void props.onCreateComment(selection, snapshot).then(() => {
+            window.getSelection()?.removeAllRanges();
+            setSelection(null);
+            setSelectionTextSnapshot("");
             setToolbarPosition(null);
           });
         }}
         onDismiss={() => {
           window.getSelection()?.removeAllRanges();
           setSelection(null);
+          setSelectionTextSnapshot("");
           setToolbarPosition(null);
         }}
         mobileFooterOffset={props.mobileFooterOffset}
@@ -270,11 +303,22 @@ function renderRoot(
   root: Root,
   context: RenderContext,
   highlights: { id: string; start: number; end: number }[],
+  comments: {
+    threadId: string;
+    start: number;
+    end: number;
+    createdAt: string;
+    updatedAt: string;
+  }[],
+  isMobile: boolean,
+  onOpenCommentThread: (threadId: string) => void,
 ) {
   return (
     <>
       {root.children.map((child, index) => (
-        <Fragment key={`root-${index}`}>{renderNode(child, context, highlights, {})}</Fragment>
+        <Fragment key={`root-${index}`}>
+          {renderNode(child, context, highlights, comments, {}, isMobile, onOpenCommentThread)}
+        </Fragment>
       ))}
     </>
   );
@@ -284,11 +328,32 @@ function renderNode(
   node: Content,
   context: RenderContext,
   highlights: { id: string; start: number; end: number }[],
+  comments: {
+    threadId: string;
+    start: number;
+    end: number;
+    createdAt: string;
+    updatedAt: string;
+  }[],
   marks: MarkdownLeafMark,
+  isMobile: boolean,
+  onOpenCommentThread: (threadId: string) => void,
 ): React.ReactNode {
   switch (node.type) {
     case "paragraph":
-      return <p>{renderChildren(node, context, highlights, marks)}</p>;
+      return (
+        <p>
+          {renderChildren(
+            node,
+            context,
+            highlights,
+            comments,
+            marks,
+            isMobile,
+            onOpenCommentThread,
+          )}
+        </p>
+      );
 
     case "heading": {
       const level = Math.min(node.depth, 6);
@@ -301,13 +366,33 @@ function renderNode(
             ? "mt-5 mb-3 text-xl font-semibold"
             : "mt-4 mb-2 text-lg font-semibold";
 
-      return <Tag className={className}>{renderChildren(node, context, highlights, marks)}</Tag>;
+      return (
+        <Tag className={className}>
+          {renderChildren(
+            node,
+            context,
+            highlights,
+            comments,
+            marks,
+            isMobile,
+            onOpenCommentThread,
+          )}
+        </Tag>
+      );
     }
 
     case "blockquote":
       return (
         <blockquote className="my-4 border-l-2 border-[color:var(--border-0)] pl-4 text-[color:var(--text-1)]">
-          {renderChildren(node, context, highlights, marks)}
+          {renderChildren(
+            node,
+            context,
+            highlights,
+            comments,
+            marks,
+            isMobile,
+            onOpenCommentThread,
+          )}
         </blockquote>
       );
 
@@ -315,25 +400,73 @@ function renderNode(
       return node.ordered ? (
         <ol className="my-3 list-decimal pl-6">
           {node.children.map((child, index) => (
-            <Fragment key={`ol-${index}`}>{renderNode(child, context, highlights, marks)}</Fragment>
+            <Fragment key={`ol-${index}`}>
+              {renderNode(
+                child,
+                context,
+                highlights,
+                comments,
+                marks,
+                isMobile,
+                onOpenCommentThread,
+              )}
+            </Fragment>
           ))}
         </ol>
       ) : (
         <ul className="my-3 list-disc pl-6">
           {node.children.map((child, index) => (
-            <Fragment key={`ul-${index}`}>{renderNode(child, context, highlights, marks)}</Fragment>
+            <Fragment key={`ul-${index}`}>
+              {renderNode(
+                child,
+                context,
+                highlights,
+                comments,
+                marks,
+                isMobile,
+                onOpenCommentThread,
+              )}
+            </Fragment>
           ))}
         </ul>
       );
 
     case "listItem":
-      return <li>{renderChildren(node, context, highlights, marks)}</li>;
+      return (
+        <li>
+          {renderChildren(
+            node,
+            context,
+            highlights,
+            comments,
+            marks,
+            isMobile,
+            onOpenCommentThread,
+          )}
+        </li>
+      );
 
     case "strong":
-      return renderChildren(node, context, highlights, { ...marks, bold: true });
+      return renderChildren(
+        node,
+        context,
+        highlights,
+        comments,
+        { ...marks, bold: true },
+        isMobile,
+        onOpenCommentThread,
+      );
 
     case "emphasis":
-      return renderChildren(node, context, highlights, { ...marks, italic: true });
+      return renderChildren(
+        node,
+        context,
+        highlights,
+        comments,
+        { ...marks, italic: true },
+        isMobile,
+        onOpenCommentThread,
+      );
 
     case "link":
       return (
@@ -343,18 +476,39 @@ function renderNode(
           rel="noreferrer"
           className="text-[color:var(--accent)] underline underline-offset-2"
         >
-          {renderChildren(node, context, highlights, {
-            ...marks,
-            linkHref: node.url,
-          })}
+          {renderChildren(
+            node,
+            context,
+            highlights,
+            comments,
+            { ...marks, linkHref: node.url },
+            isMobile,
+            onOpenCommentThread,
+          )}
         </a>
       );
 
     case "inlineCode":
-      return renderInlineCode(node, context, highlights, marks);
+      return renderInlineCode(
+        node,
+        context,
+        highlights,
+        comments,
+        marks,
+        isMobile,
+        onOpenCommentThread,
+      );
 
     case "text":
-      return renderTextLeaf(node, context, highlights, marks);
+      return renderTextLeaf(
+        node,
+        context,
+        highlights,
+        comments,
+        marks,
+        isMobile,
+        onOpenCommentThread,
+      );
 
     case "break":
       return <br />;
@@ -363,13 +517,21 @@ function renderNode(
       return <hr className="my-5 border-[color:var(--border-0)]" />;
 
     case "table":
-      return renderTable(node, context, highlights);
+      return renderTable(node, context, highlights, comments, isMobile, onOpenCommentThread);
 
     case "tableRow":
-      return renderTableRow(node, context, highlights);
+      return renderTableRow(node, context, highlights, comments, isMobile, onOpenCommentThread);
 
     case "tableCell":
-      return renderTableCell(node, context, highlights, marks);
+      return renderTableCell(
+        node,
+        context,
+        highlights,
+        comments,
+        marks,
+        isMobile,
+        onOpenCommentThread,
+      );
 
     case "code":
       return (
@@ -387,26 +549,25 @@ function renderChildren(
   node: Parent,
   context: RenderContext,
   highlights: { id: string; start: number; end: number }[],
+  comments: {
+    threadId: string;
+    start: number;
+    end: number;
+    createdAt: string;
+    updatedAt: string;
+  }[],
   marks: MarkdownLeafMark,
+  isMobile: boolean,
+  onOpenCommentThread: (threadId: string) => void,
 ) {
   return node.children.map((child, index) => (
     <Fragment key={`${node.type}-${index}`}>
-      {renderNode(child, context, highlights, marks)}
+      {renderNode(child, context, highlights, comments, marks, isMobile, onOpenCommentThread)}
     </Fragment>
   ));
 }
 
-function TableBlock({
-  headerRow,
-  bodyRows,
-  context,
-  highlights,
-}: {
-  headerRow?: TableRow;
-  bodyRows: TableRow[];
-  context: RenderContext;
-  highlights: { id: string; start: number; end: number }[];
-}) {
+function TableBlock({ headerRow, bodyRows }: { headerRow?: TableRow; bodyRows: TableRow[] }) {
   const tableRef = useRef<HTMLTableElement | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -427,17 +588,12 @@ function TableBlock({
           className="w-full overflow-hidden rounded-[var(--radius-md)] border-collapse bg-[color:var(--bg-1)] text-sm"
         >
           {headerRow ? (
-            <thead className="bg-black/40">
-              {renderTableRow(headerRow, context, highlights, true)}
-            </thead>
+            <thead className="bg-black/40">{renderTableRowPlain(headerRow, true)}</thead>
           ) : null}
-
           {bodyRows.length > 0 ? (
             <tbody>
               {bodyRows.map((row, index) => (
-                <Fragment key={`tbody-row-${index}`}>
-                  {renderTableRow(row, context, highlights, false)}
-                </Fragment>
+                <Fragment key={`tbody-row-${index}`}>{renderTableRowPlain(row, false)}</Fragment>
               ))}
             </tbody>
           ) : null}
@@ -469,34 +625,46 @@ function TableBlock({
 
 function renderTable(
   node: Table,
-  context: RenderContext,
-  highlights: { id: string; start: number; end: number }[],
+  _context: RenderContext,
+  _highlights: { id: string; start: number; end: number }[],
+  _comments: {
+    threadId: string;
+    start: number;
+    end: number;
+    createdAt: string;
+    updatedAt: string;
+  }[],
+  _isMobile: boolean,
+  _onOpenCommentThread: (threadId: string) => void,
 ) {
   const headerRow = node.children[0];
   const bodyRows = node.children.slice(1);
-
-  return (
-    <TableBlock
-      headerRow={headerRow}
-      bodyRows={bodyRows}
-      context={context}
-      highlights={highlights}
-    />
-  );
+  return <TableBlock headerRow={headerRow} bodyRows={bodyRows} />;
 }
 
 function renderTableRow(
   node: TableRow,
-  context: RenderContext,
-  highlights: { id: string; start: number; end: number }[],
+  _context: RenderContext,
+  _highlights: { id: string; start: number; end: number }[],
+  _comments: {
+    threadId: string;
+    start: number;
+    end: number;
+    createdAt: string;
+    updatedAt: string;
+  }[],
+  _isMobile: boolean,
+  _onOpenCommentThread: (threadId: string) => void,
   isHeader = false,
 ) {
+  return renderTableRowPlain(node, isHeader);
+}
+
+function renderTableRowPlain(node: TableRow, isHeader = false) {
   return (
     <tr className="border-b border-[color:var(--border-0)] last:border-b-0">
       {node.children.map((cell, index) => (
-        <Fragment key={`cell-${index}`}>
-          {renderTableCell(cell, context, highlights, {}, isHeader)}
-        </Fragment>
+        <Fragment key={`cell-${index}`}>{renderTableCellPlain(cell, isHeader)}</Fragment>
       ))}
     </tr>
   );
@@ -504,11 +672,24 @@ function renderTableRow(
 
 function renderTableCell(
   node: TableCell,
-  context: RenderContext,
-  highlights: { id: string; start: number; end: number }[],
-  marks: MarkdownLeafMark,
+  _context: RenderContext,
+  _highlights: { id: string; start: number; end: number }[],
+  _comments: {
+    threadId: string;
+    start: number;
+    end: number;
+    createdAt: string;
+    updatedAt: string;
+  }[],
+  _marks: MarkdownLeafMark,
+  _isMobile: boolean,
+  _onOpenCommentThread: (threadId: string) => void,
   isHeader = false,
 ) {
+  return renderTableCellPlain(node, isHeader);
+}
+
+function renderTableCellPlain(node: TableCell, isHeader = false) {
   const Tag = isHeader ? "th" : "td";
 
   return (
@@ -534,20 +715,16 @@ function renderNodeWithoutAnnotation(node: Content): React.ReactNode {
   switch (node.type) {
     case "text":
       return node.value;
-
     case "strong":
       return <strong>{renderChildrenWithoutAnnotation(node)}</strong>;
-
     case "emphasis":
       return <em>{renderChildrenWithoutAnnotation(node)}</em>;
-
     case "inlineCode":
       return (
         <code className="rounded bg-[color:var(--bg-1)] px-1.5 py-0.5 text-[13px]">
           {node.value}
         </code>
       );
-
     case "link":
       return (
         <a
@@ -559,10 +736,8 @@ function renderNodeWithoutAnnotation(node: Content): React.ReactNode {
           {renderChildrenWithoutAnnotation(node)}
         </a>
       );
-
     case "break":
       return <br />;
-
     default:
       if ("children" in node && Array.isArray(node.children)) {
         return renderChildrenWithoutAnnotation(node as Parent);
@@ -575,7 +750,16 @@ function renderInlineCode(
   node: InlineCode,
   context: RenderContext,
   highlights: { id: string; start: number; end: number }[],
+  comments: {
+    threadId: string;
+    start: number;
+    end: number;
+    createdAt: string;
+    updatedAt: string;
+  }[],
   marks: MarkdownLeafMark,
+  isMobile: boolean,
+  onOpenCommentThread: (threadId: string) => void,
 ) {
   const start = node.position?.start.offset;
   const end = node.position?.end.offset;
@@ -586,21 +770,15 @@ function renderInlineCode(
   const rawValueStart = start + 1;
   const rawValueEnd = end - 1;
 
-  const leaf = buildLeaf(node.value, rawValueStart, rawValueEnd, {
-    ...marks,
-    code: true,
-  });
-
-  if (!leaf) {
-    return <code>{node.value}</code>;
-  }
+  const leaf = buildLeaf(node.value, rawValueStart, rawValueEnd, { ...marks, code: true });
+  if (!leaf) return <code>{node.value}</code>;
 
   context.leaves.push(leaf);
-  const segments = splitLeafByHighlights(leaf, highlights);
+  const segments = splitLeafByDecorations(leaf, highlights, comments);
 
   return (
     <code className="rounded bg-[color:var(--bg-1)] px-1.5 py-0.5 text-[13px]">
-      {segments.map(renderSegment)}
+      {segments.map((segment) => renderSegment(segment, isMobile, onOpenCommentThread))}
     </code>
   );
 }
@@ -609,7 +787,16 @@ function renderTextLeaf(
   node: MdastText,
   context: RenderContext,
   highlights: { id: string; start: number; end: number }[],
+  comments: {
+    threadId: string;
+    start: number;
+    end: number;
+    createdAt: string;
+    updatedAt: string;
+  }[],
   marks: MarkdownLeafMark,
+  isMobile: boolean,
+  onOpenCommentThread: (threadId: string) => void,
 ) {
   const start = node.position?.start.offset;
   const end = node.position?.end.offset;
@@ -622,12 +809,19 @@ function renderTextLeaf(
   if (!leaf) return node.value;
 
   context.leaves.push(leaf);
-  const segments = splitLeafByHighlights(leaf, highlights);
+  const segments = splitLeafByDecorations(leaf, highlights, comments);
 
-  return segments.map(renderSegment);
+  return segments.map((segment) => renderSegment(segment, isMobile, onOpenCommentThread));
 }
 
-function renderSegment(segment: HighlightedLeafSegment) {
+function renderSegment(
+  segment: DecoratedLeafSegment,
+  isMobile: boolean,
+  onOpenCommentThread: (threadId: string) => void,
+) {
+  const isCommented = segment.commentThreadIds.length > 0;
+  const desktopClickable = !isMobile && isCommented && !!segment.topCommentThreadId;
+
   const className = [
     segment.marks.bold ? "font-semibold" : "",
     segment.marks.italic ? "italic" : "",
@@ -640,9 +834,26 @@ function renderSegment(segment: HighlightedLeafSegment) {
       key={segment.key}
       data-raw-start={segment.rawStart}
       data-raw-end={segment.rawEnd}
+      data-comment-thread-ids={isCommented ? segment.commentThreadIds.join(",") : undefined}
       className={className || undefined}
+      onClick={
+        desktopClickable
+          ? () => {
+              const selected = window.getSelection()?.toString();
+              if (selected && selected.trim()) return;
+              if (!segment.topCommentThreadId) return;
+              onOpenCommentThread(segment.topCommentThreadId);
+            }
+          : undefined
+      }
       style={{
-        backgroundColor: segment.highlighted ? HIGHLIGHT_STYLE : undefined,
+        backgroundColor: isCommented
+          ? COMMENT_STYLE
+          : segment.highlighted
+            ? HIGHLIGHT_STYLE
+            : undefined,
+        boxShadow: isCommented ? "inset 0 -1px 0 rgba(96,165,250,0.65)" : undefined,
+        cursor: desktopClickable ? "pointer" : undefined,
       }}
     >
       {segment.text}
@@ -670,10 +881,7 @@ function getHighlightCoverageState(
   const canRemoveHighlight = clipped.length > 0;
 
   if (clipped.length === 0) {
-    return {
-      canAddHighlight: true,
-      canRemoveHighlight: false,
-    };
+    return { canAddHighlight: true, canRemoveHighlight: false };
   }
 
   clipped.sort((a, b) => a.start - b.start);
@@ -696,10 +904,7 @@ function getHighlightCoverageState(
   const total = selection.end - selection.start;
   const canAddHighlight = covered < total;
 
-  return {
-    canAddHighlight,
-    canRemoveHighlight,
-  };
+  return { canAddHighlight, canRemoveHighlight };
 }
 
 function isSelectionInsideNoAnnotationArea(range: Range, root: HTMLElement) {
@@ -752,11 +957,9 @@ function resolveBoundary(
 
   const rawStart = Number(span.dataset.rawStart);
   const textContent = textNode.textContent ?? "";
-
   const localOffset = Math.max(0, Math.min(offset, textContent.length));
-  return {
-    rawOffset: rawStart + localOffset,
-  };
+
+  return { rawOffset: rawStart + localOffset };
 }
 
 function getClosestTextNode(container: Node, offset: number): globalThis.Text | null {
@@ -789,7 +992,7 @@ function firstTextDescendant(node: Node): globalThis.Text | null {
 function computeDesktopToolbarPosition(range: Range) {
   const rect = range.getBoundingClientRect();
 
-  const toolbarWidth = 240;
+  const toolbarWidth = 300;
   const toolbarHeight = 44;
   const gap = 10;
   const viewportPadding = 8;

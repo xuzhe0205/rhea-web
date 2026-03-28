@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { AnnotationDTO } from "@/lib/annotations";
+import type { CommentThreadDTO } from "@/lib/comments";
 import { AnnotatedMarkdownMessage } from "@/components/chat/richtext/AnnotatedMarkdownMessage";
 import { BookmarkIcon } from "@/components/ui/BookmarkIcon";
 
@@ -18,21 +19,30 @@ const USER_COLLAPSED_MAX_HEIGHT = 160;
 export function MessageBlock({
   msg,
   annotations,
+  commentThreads,
   isFavorite,
   favoriteBusy,
   onToggleFavorite,
   onCreateHighlight,
   onRemoveHighlightRange,
+  onCreateComment,
+  onOpenCommentThread,
   onSelectionToolbarVisibleChange,
   mobileFooterOffset,
 }: {
   msg: Msg;
   annotations: AnnotationDTO[];
+  commentThreads: CommentThreadDTO[];
   isFavorite?: boolean;
   favoriteBusy?: boolean;
   onToggleFavorite?: () => void;
   onCreateHighlight: (range: { start: number; end: number }) => Promise<void>;
   onRemoveHighlightRange: (range: { start: number; end: number }) => Promise<void>;
+  onCreateComment: (
+    range: { start: number; end: number },
+    selectedTextSnapshot: string,
+  ) => Promise<void>;
+  onOpenCommentThread: (threadId: string) => void;
   onSelectionToolbarVisibleChange?: (visible: boolean) => void;
   mobileFooterOffset?: number;
 }) {
@@ -60,7 +70,7 @@ export function MessageBlock({
     ro.observe(el);
 
     return () => ro.disconnect();
-  }, [isUser, msg.content, annotations]);
+  }, [isUser, msg.content, annotations, commentThreads]);
 
   return (
     <div className={`group flex ${isUser ? "justify-end" : "justify-start"}`}>
@@ -157,8 +167,11 @@ export function MessageBlock({
                 <AnnotatedMarkdownMessage
                   content={msg.content}
                   annotations={annotations}
+                  commentThreads={commentThreads}
                   onCreateHighlight={onCreateHighlight}
                   onRemoveHighlightRange={onRemoveHighlightRange}
+                  onCreateComment={onCreateComment}
+                  onOpenCommentThread={onOpenCommentThread}
                   onSelectionToolbarVisibleChange={onSelectionToolbarVisibleChange}
                   mobileFooterOffset={mobileFooterOffset}
                 />

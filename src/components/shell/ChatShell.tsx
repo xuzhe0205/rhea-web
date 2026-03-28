@@ -8,6 +8,7 @@ import { MessageList } from "@/components/chat/MessageList";
 import { Composer } from "@/components/chat/Composer";
 import { ModelBadge } from "@/components/chat/ModelBadge";
 import { TokenBadge } from "@/components/chat/TokenBadge";
+import { CommentThreadPanel } from "@/components/chat/CommentThreadPanel";
 import { useAuth } from "@/context/AuthContext";
 import { listConversations, patchConversationPin, getConversation } from "@/lib/conversations";
 import {
@@ -26,12 +27,17 @@ import {
   type AnnotationDTO,
   removeHighlightRange,
 } from "@/lib/annotations";
-
+import {
+  addComment,
+  deleteComment,
+  listCommentThreadsByMessageIds,
+  groupCommentThreadsByMessageId,
+  type CommentThreadDTO,
+} from "@/lib/comments";
 import {
   applyOptimisticHighlightAdd,
   applyOptimisticHighlightRemove,
 } from "@/components/chat/richtext/highlight-optimistic";
-
 import { FavoriteLabelPopup } from "@/components/shell/FavoriteLabelPopup";
 
 type Participant = { id: string; name: string };
@@ -191,6 +197,15 @@ export function ChatShell() {
   const [savingFavoriteLabel, setSavingFavoriteLabel] = useState(false);
 
   const [mobileSelectionToolbarVisible, setMobileSelectionToolbarVisible] = useState(false);
+
+  const [commentThreadsByConversation, setCommentThreadsByConversation] = useState<
+    Record<string, Record<string, CommentThreadDTO[]>>
+  >({});
+
+  const [activeCommentThread, setActiveCommentThread] = useState<CommentThreadDTO | null>(null);
+  const [commentPanelOpen, setCommentPanelOpen] = useState(false);
+  const [savingComment, setSavingComment] = useState(false);
+  const [deletingCommentId, setDeletingCommentId] = useState<string | null>(null);
 
   const footerRef = useRef<HTMLDivElement | null>(null);
   const [footerHeight, setFooterHeight] = useState(0);
@@ -423,7 +438,10 @@ export function ChatShell() {
         [conversationId]: (rows?.length ?? 0) === PAGE_SIZE,
       }));
 
-      await loadConversationAnnotations(conversationId, mapped);
+      await Promise.all([
+        loadConversationAnnotations(conversationId, mapped),
+        loadCommentThreadsForMessages(conversationId, mapped),
+      ]);
 
       requestAnimationFrame(() => {
         const el = threadRef.current;
@@ -506,7 +524,10 @@ export function ChatShell() {
       }));
 
       if (nextMessages.length > 0) {
-        await loadConversationAnnotations(conversationId, nextMessages);
+        await Promise.all([
+          loadConversationAnnotations(conversationId, nextMessages),
+          loadCommentThreadsForMessages(conversationId, nextMessages),
+        ]);
       }
 
       requestAnimationFrame(() => {
@@ -602,6 +623,162 @@ export function ChatShell() {
         ...prev,
         [conversationId]: {},
       }));
+    }
+  }
+
+  const activeCommentThreadsByMessageId = activeConversationId
+    ? (commentThreadsByConversation[activeConversationId] ?? {})
+    : {};
+
+  function openCommentThreadById(threadId: string) {
+    if (!activeConversationId) return;
+
+    const grouped = commentThreadsByConversation[activeConversationId] ?? {};
+    const allThreads = Object.values(grouped).flat();
+    const thread = allThreads.find((t) => t.id === threadId);
+    if (!thread) return;
+
+    setActiveCommentThread(thread);
+    setCommentPanelOpen(true);
+  }
+
+  async function createCommentForRange(
+    messageId: string,
+    range: { start: number; end: number },
+    selectedTextSnapshot: string,
+  ) {
+    if (!token || !activeConversationId) return;
+
+    const content = window.prompt("Add comment");
+    if (!content || !content.trim()) return;
+
+    setSavingComment(true);
+
+    try {
+      const res = await addComment(token, {
+        message_id: messageId,
+        conv_id: activeConversationId,
+        range_start: range.start,
+        range_end: range.end,
+        selected_text_snapshot: selectedTextSnapshot,
+        content: content.trim(),
+      });
+
+      setCommentThreadsByConversation((prev) => {
+        const currentConv = prev[activeConversationId] ?? {};
+        const currentMsgThreads = currentConv[messageId] ?? [];
+
+        const existingIndex = currentMsgThreads.findIndex((t) => t.id === res.thread.id);
+
+        let nextThreads: CommentThreadDTO[];
+        if (existingIndex >= 0) {
+          nextThreads = [...currentMsgThreads];
+          nextThreads[existingIndex] = res.thread;
+        } else {
+          nextThreads = [...currentMsgThreads, res.thread];
+        }
+
+        return {
+          ...prev,
+          [activeConversationId]: {
+            ...currentConv,
+            [messageId]: nextThreads,
+          },
+        };
+      });
+
+      setActiveCommentThread(res.thread);
+      setCommentPanelOpen(true);
+    } catch (err) {
+      console.error("Failed to create comment:", err);
+    } finally {
+      setSavingComment(false);
+    }
+  }
+
+  async function replyToActiveCommentThread(content: string) {
+    if (!token || !activeConversationId || !activeCommentThread) return;
+
+    setSavingComment(true);
+
+    try {
+      const res = await addComment(token, {
+        message_id: activeCommentThread.message_id,
+        conv_id: activeConversationId,
+        range_start: activeCommentThread.range_start,
+        range_end: activeCommentThread.range_end,
+        selected_text_snapshot: activeCommentThread.selected_text_snapshot,
+        content,
+      });
+
+      setCommentThreadsByConversation((prev) => {
+        const currentConv = prev[activeConversationId] ?? {};
+        const currentMsgThreads = currentConv[activeCommentThread.message_id] ?? [];
+
+        const nextThreads = currentMsgThreads.map((t) => (t.id === res.thread.id ? res.thread : t));
+
+        return {
+          ...prev,
+          [activeConversationId]: {
+            ...currentConv,
+            [activeCommentThread.message_id]: nextThreads,
+          },
+        };
+      });
+
+      setActiveCommentThread(res.thread);
+    } catch (err) {
+      console.error("Failed to reply comment:", err);
+    } finally {
+      setSavingComment(false);
+    }
+  }
+
+  async function deleteCommentById(commentId: string) {
+    if (!token || !activeConversationId || !activeCommentThread) return;
+
+    setDeletingCommentId(commentId);
+
+    try {
+      await deleteComment(token, commentId);
+
+      const grouped = commentThreadsByConversation[activeConversationId] ?? {};
+      const messageId = activeCommentThread.message_id;
+      const threads = grouped[messageId] ?? [];
+
+      const nextThreads = threads
+        .map((thread) => {
+          if (thread.id !== activeCommentThread.id) return thread;
+
+          const nextComments = (thread.comments ?? []).filter((c) => c.id !== commentId);
+
+          if (nextComments.length === 0) return null;
+
+          return {
+            ...thread,
+            comments: nextComments,
+            updated_at: new Date().toISOString(),
+          };
+        })
+        .filter(Boolean) as CommentThreadDTO[];
+
+      setCommentThreadsByConversation((prev) => ({
+        ...prev,
+        [activeConversationId]: {
+          ...(prev[activeConversationId] ?? {}),
+          [messageId]: nextThreads,
+        },
+      }));
+
+      const updatedActive = nextThreads.find((t) => t.id === activeCommentThread.id) ?? null;
+      setActiveCommentThread(updatedActive);
+      if (!updatedActive) {
+        setCommentPanelOpen(false);
+      }
+    } catch (err) {
+      console.error("Failed to delete comment:", err);
+    } finally {
+      setDeletingCommentId(null);
     }
   }
 
@@ -1030,6 +1207,35 @@ export function ChatShell() {
     }
   }
 
+  async function loadCommentThreadsForMessages(conversationId: string, messages: Msg[]) {
+    if (!token) return;
+    if (!conversationId) return;
+
+    const messageIds = messages.map((m) => m.id).filter(Boolean);
+    if (messageIds.length === 0) {
+      setCommentThreadsByConversation((prev) => ({
+        ...prev,
+        [conversationId]: {},
+      }));
+      return;
+    }
+
+    try {
+      const rows = await listCommentThreadsByMessageIds(token, messageIds);
+      const grouped = groupCommentThreadsByMessageId(rows ?? []);
+
+      setCommentThreadsByConversation((prev) => ({
+        ...prev,
+        [conversationId]: grouped,
+      }));
+    } catch {
+      setCommentThreadsByConversation((prev) => ({
+        ...prev,
+        [conversationId]: {},
+      }));
+    }
+  }
+
   const activeMessages = activeConversationId
     ? (messagesByConversation[activeConversationId] ?? [])
     : pendingMessages;
@@ -1113,6 +1319,7 @@ export function ChatShell() {
                       <MessageList
                         messages={activeMessages}
                         annotationsByMessageId={activeAnnotationsByMessageId}
+                        commentThreadsByMessageId={activeCommentThreadsByMessageId}
                         onToggleFavorite={toggleFavorite}
                         togglingFavoriteId={togglingFavoriteId}
                         onCreateHighlight={async (messageId, range) => {
@@ -1180,6 +1387,8 @@ export function ChatShell() {
                             console.error("Failed to persist highlight removal:", err);
                           }
                         }}
+                        onCreateComment={createCommentForRange}
+                        onOpenCommentThread={openCommentThreadById}
                         onSelectionToolbarVisibleChange={setMobileSelectionToolbarVisible}
                         mobileFooterOffset={footerHeight}
                       />
@@ -1218,6 +1427,27 @@ export function ChatShell() {
           )}
         </div>
       </div>
+
+      <CommentThreadPanel
+        thread={activeCommentThread}
+        open={commentPanelOpen}
+        onClose={() => setCommentPanelOpen(false)}
+        onSubmit={replyToActiveCommentThread}
+        submitting={savingComment}
+        onDeleteComment={deleteCommentById}
+        deletingCommentId={deletingCommentId}
+      />
+
+      <CommentThreadPanel
+        thread={activeCommentThread}
+        open={commentPanelOpen}
+        mobile
+        onClose={() => setCommentPanelOpen(false)}
+        onSubmit={replyToActiveCommentThread}
+        submitting={savingComment}
+        onDeleteComment={deleteCommentById}
+        deletingCommentId={deletingCommentId}
+      />
 
       <FavoriteLabelPopup
         open={!!favoriteLabelTarget}
