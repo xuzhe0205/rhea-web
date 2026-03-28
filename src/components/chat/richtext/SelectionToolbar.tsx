@@ -8,9 +8,9 @@ type FloatingPosition = {
 export function SelectionToolbar(props: {
   visible: boolean;
   isMobile: boolean;
-  canAddHighlight: boolean;
-  canRemoveHighlight: boolean;
-  canComment: boolean;
+  canAddHighlight?: boolean;
+  canRemoveHighlight?: boolean;
+  canComment?: boolean;
   onHighlight: () => void;
   onRemove: () => void;
   onComment: () => void;
@@ -30,7 +30,7 @@ export function SelectionToolbar(props: {
 
   return (
     <div
-      className={props.isMobile ? "fixed inset-x-4 z-[9999]" : "fixed z-[9999] -translate-x-1/2"}
+      className={props.isMobile ? "fixed inset-x-4 z-50" : "fixed z-50 -translate-x-1/2"}
       style={
         props.isMobile
           ? {
@@ -74,7 +74,7 @@ export function SelectionToolbar(props: {
             onClick={props.onRemove}
             className="rhea-focus rounded-xl px-3 py-2 text-xs font-medium text-[color:var(--text-0)] transition hover:bg-[color:var(--bg-1)]"
           >
-            Remove
+            Remove highlight
           </button>
         ) : null}
 
