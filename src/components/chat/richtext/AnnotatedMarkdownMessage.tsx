@@ -238,9 +238,9 @@ export function AnnotatedMarkdownMessage(props: Props) {
         if (isIOSSafari) {
           safariFollowupId = window.setTimeout(() => {
             syncSelectionStateFromDOM();
-          }, 120);
+          }, 240);
         }
-      }, 60);
+      }, 120);
     };
 
     document.addEventListener("touchend", handleTouchEnd, true);
@@ -280,7 +280,7 @@ export function AnnotatedMarkdownMessage(props: Props) {
         if (text) {
           setShowMobileSelectionToolbar(true);
         }
-      }, 160);
+      }, 320);
     } else {
       setShowMobileSelectionToolbar(true);
     }
