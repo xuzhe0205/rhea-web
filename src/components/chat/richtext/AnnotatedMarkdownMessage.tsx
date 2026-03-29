@@ -56,11 +56,31 @@ type RenderContext = {
 const HIGHLIGHT_STYLE = "rgba(250, 204, 21, 0.30)";
 const COMMENT_STYLE = "rgba(96, 165, 250, 0.22)";
 
+function detectIOSSafari() {
+  if (typeof window === "undefined") return false;
+
+  const ua = window.navigator.userAgent;
+  const isIOS =
+    /iP(ad|hone|od)/.test(ua) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+
+  const isWebKit = /WebKit/i.test(ua);
+  const isCriOS = /CriOS/i.test(ua);
+  const isFxiOS = /FxiOS/i.test(ua);
+  const isEdgiOS = /EdgiOS/i.test(ua);
+
+  return isIOS && isWebKit && !isCriOS && !isFxiOS && !isEdgiOS;
+}
+
 export function AnnotatedMarkdownMessage(props: Props) {
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const mobileToolbarTimerRef = useRef<number | null>(null);
+
   const [selection, setSelection] = useState<SelectionRange | null>(null);
   const [selectionTextSnapshot, setSelectionTextSnapshot] = useState("");
   const [isMobile, setIsMobile] = useState(false);
+  const [isIOSSafari, setIsIOSSafari] = useState(false);
+  const [showMobileSelectionToolbar, setShowMobileSelectionToolbar] = useState(false);
   const [toolbarPosition, setToolbarPosition] = useState<{ top: number; left: number } | null>(
     null,
   );
@@ -102,6 +122,14 @@ export function AnnotatedMarkdownMessage(props: Props) {
     return { node, leaves: context.leaves };
   }, [props.content, highlightRanges, commentRanges, isMobile, props.onOpenCommentThread]);
 
+  function clearSelectionUI() {
+    window.getSelection()?.removeAllRanges();
+    setSelection(null);
+    setSelectionTextSnapshot("");
+    setToolbarPosition(null);
+    setShowMobileSelectionToolbar(false);
+  }
+
   function updateToolbarFromCurrentSelection() {
     const root = rootRef.current;
     if (!root || isMobile) return;
@@ -136,6 +164,7 @@ export function AnnotatedMarkdownMessage(props: Props) {
       setSelection(null);
       setSelectionTextSnapshot("");
       setToolbarPosition(null);
+      setShowMobileSelectionToolbar(false);
       return;
     }
 
@@ -146,6 +175,7 @@ export function AnnotatedMarkdownMessage(props: Props) {
       setSelection(null);
       setSelectionTextSnapshot("");
       setToolbarPosition(null);
+      setShowMobileSelectionToolbar(false);
       return;
     }
 
@@ -173,6 +203,7 @@ export function AnnotatedMarkdownMessage(props: Props) {
     const mq = window.matchMedia("(max-width: 767px)");
     const sync = () => setIsMobile(mq.matches);
     sync();
+    setIsIOSSafari(detectIOSSafari());
     const handler = () => sync();
     mq.addEventListener("change", handler);
     return () => mq.removeEventListener("change", handler);
@@ -191,14 +222,24 @@ export function AnnotatedMarkdownMessage(props: Props) {
     if (!isMobile) return;
 
     let timeoutId: number | null = null;
+    let safariFollowupId: number | null = null;
 
     const handleTouchEnd = () => {
       if (timeoutId != null) {
         window.clearTimeout(timeoutId);
       }
+      if (safariFollowupId != null) {
+        window.clearTimeout(safariFollowupId);
+      }
 
       timeoutId = window.setTimeout(() => {
         syncSelectionStateFromDOM();
+
+        if (isIOSSafari) {
+          safariFollowupId = window.setTimeout(() => {
+            syncSelectionStateFromDOM();
+          }, 220);
+        }
       }, 120);
     };
 
@@ -208,9 +249,49 @@ export function AnnotatedMarkdownMessage(props: Props) {
       if (timeoutId != null) {
         window.clearTimeout(timeoutId);
       }
+      if (safariFollowupId != null) {
+        window.clearTimeout(safariFollowupId);
+      }
       document.removeEventListener("touchend", handleTouchEnd, true);
     };
-  }, [isMobile, props.content]);
+  }, [isMobile, isIOSSafari, props.content]);
+
+  useEffect(() => {
+    if (!isMobile) {
+      setShowMobileSelectionToolbar(false);
+      return;
+    }
+
+    if (mobileToolbarTimerRef.current != null) {
+      window.clearTimeout(mobileToolbarTimerRef.current);
+      mobileToolbarTimerRef.current = null;
+    }
+
+    if (!selection) {
+      setShowMobileSelectionToolbar(false);
+      return;
+    }
+
+    if (isIOSSafari) {
+      setShowMobileSelectionToolbar(false);
+
+      mobileToolbarTimerRef.current = window.setTimeout(() => {
+        const text = window.getSelection()?.toString()?.trim();
+        if (text) {
+          setShowMobileSelectionToolbar(true);
+        }
+      }, 380);
+    } else {
+      setShowMobileSelectionToolbar(true);
+    }
+
+    return () => {
+      if (mobileToolbarTimerRef.current != null) {
+        window.clearTimeout(mobileToolbarTimerRef.current);
+        mobileToolbarTimerRef.current = null;
+      }
+    };
+  }, [isMobile, isIOSSafari, selection]);
 
   useEffect(() => {
     if (!props.onSelectionToolbarVisibleChange) return;
@@ -220,8 +301,8 @@ export function AnnotatedMarkdownMessage(props: Props) {
       return;
     }
 
-    props.onSelectionToolbarVisibleChange(!!selection);
-  }, [isMobile, selection, props.onSelectionToolbarVisibleChange]);
+    props.onSelectionToolbarVisibleChange(showMobileSelectionToolbar);
+  }, [isMobile, showMobileSelectionToolbar, props.onSelectionToolbarVisibleChange]);
 
   useEffect(() => {
     if (isMobile || !selection) return;
@@ -248,7 +329,7 @@ export function AnnotatedMarkdownMessage(props: Props) {
   return (
     <div className="relative">
       <SelectionToolbar
-        visible={isMobile ? !!selection : !!selection && !!toolbarPosition}
+        visible={isMobile ? showMobileSelectionToolbar : !!selection && !!toolbarPosition}
         isMobile={isMobile}
         position={toolbarPosition}
         canAddHighlight={highlightCoverage.canAddHighlight}
@@ -257,19 +338,13 @@ export function AnnotatedMarkdownMessage(props: Props) {
         onHighlight={() => {
           if (!selection) return;
           void props.onCreateHighlight(selection).then(() => {
-            window.getSelection()?.removeAllRanges();
-            setSelection(null);
-            setSelectionTextSnapshot("");
-            setToolbarPosition(null);
+            clearSelectionUI();
           });
         }}
         onRemove={() => {
           if (!selection) return;
           void props.onRemoveHighlightRange(selection).then(() => {
-            window.getSelection()?.removeAllRanges();
-            setSelection(null);
-            setSelectionTextSnapshot("");
-            setToolbarPosition(null);
+            clearSelectionUI();
           });
         }}
         onComment={() => {
@@ -277,17 +352,11 @@ export function AnnotatedMarkdownMessage(props: Props) {
           const snapshot = selectionTextSnapshot || getSelectionSnapshot(props.content, selection);
 
           void props.onCreateComment(selection, snapshot).then(() => {
-            window.getSelection()?.removeAllRanges();
-            setSelection(null);
-            setSelectionTextSnapshot("");
-            setToolbarPosition(null);
+            clearSelectionUI();
           });
         }}
         onDismiss={() => {
-          window.getSelection()?.removeAllRanges();
-          setSelection(null);
-          setSelectionTextSnapshot("");
-          setToolbarPosition(null);
+          clearSelectionUI();
         }}
         mobileFooterOffset={props.mobileFooterOffset}
       />
