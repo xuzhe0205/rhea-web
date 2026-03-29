@@ -43,17 +43,19 @@ export function SelectionToolbar(props: {
         className={
           props.isMobile
             ? [
-                "rounded-[20px] border border-white/10",
-                "bg-[rgba(10,14,24,0.96)] backdrop-blur-xl",
-                "shadow-[0_12px_36px_rgba(0,0,0,0.34)]",
-                "px-2 py-2",
+                "rounded-[20px] border border-white/[0.14]",
+                "bg-[linear-gradient(180deg,rgba(9,13,22,0.98),rgba(5,8,15,0.98))]",
+                "backdrop-blur-xl",
+                "shadow-[0_18px_44px_rgba(0,0,0,0.42),0_0_0_1px_rgba(116,152,255,0.08)]",
+                "px-2.5 py-2.5",
                 "flex items-center justify-center gap-2",
                 "animate-[toolbar-in_140ms_ease-out]",
               ].join(" ")
             : [
-                "rounded-2xl border border-[color:var(--border-0)]",
-                "bg-[color:var(--bg-0)] p-1 backdrop-blur",
-                "shadow-[0_10px_30px_rgba(0,0,0,0.24)]",
+                "rounded-2xl border border-white/[0.10]",
+                "bg-[linear-gradient(180deg,rgba(14,18,28,0.98),rgba(9,12,20,0.98))]",
+                "p-1 backdrop-blur",
+                "shadow-[0_14px_34px_rgba(0,0,0,0.28),inset_0_1px_0_rgba(255,255,255,0.04)]",
                 "flex items-center gap-1",
               ].join(" ")
         }
@@ -62,7 +64,7 @@ export function SelectionToolbar(props: {
           <button
             type="button"
             onClick={props.onHighlight}
-            className="rhea-focus rounded-xl px-3 py-2 text-xs font-medium text-[color:var(--text-0)] transition hover:bg-[color:var(--bg-1)]"
+            className="rhea-focus rounded-xl px-3 py-2 text-xs font-medium text-white/92 transition hover:bg-white/[0.08]"
           >
             Highlight
           </button>
@@ -72,7 +74,7 @@ export function SelectionToolbar(props: {
           <button
             type="button"
             onClick={props.onRemove}
-            className="rhea-focus rounded-xl px-3 py-2 text-xs font-medium text-[color:var(--text-0)] transition hover:bg-[color:var(--bg-1)]"
+            className="rhea-focus rounded-xl px-3 py-2 text-xs font-medium text-white/92 transition hover:bg-white/[0.08]"
           >
             Remove highlight
           </button>
@@ -82,7 +84,7 @@ export function SelectionToolbar(props: {
           <button
             type="button"
             onClick={props.onComment}
-            className="rhea-focus rounded-xl px-3 py-2 text-xs font-medium text-[color:var(--text-0)] transition hover:bg-[color:var(--bg-1)]"
+            className="rhea-focus rounded-xl px-3 py-2 text-xs font-medium text-white/72 transition hover:bg-white/[0.08] hover:text-white"
           >
             Comment
           </button>

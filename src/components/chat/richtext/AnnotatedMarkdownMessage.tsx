@@ -72,30 +72,14 @@ function detectIOSSafari() {
   return isIOS && isWebKit && !isCriOS && !isFxiOS && !isEdgiOS;
 }
 
-function detectStandaloneIOSWebApp() {
-  if (typeof window === "undefined") return false;
-
-  const navStandalone =
-    "standalone" in window.navigator &&
-    (window.navigator as Navigator & { standalone?: boolean }).standalone === true;
-
-  const mediaStandalone =
-    typeof window.matchMedia === "function" &&
-    window.matchMedia("(display-mode: standalone)").matches;
-
-  return navStandalone || mediaStandalone;
-}
-
 export function AnnotatedMarkdownMessage(props: Props) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const mobileToolbarTimerRef = useRef<number | null>(null);
-  const mobileSelectionPollRefs = useRef<number[]>([]);
 
   const [selection, setSelection] = useState<SelectionRange | null>(null);
   const [selectionTextSnapshot, setSelectionTextSnapshot] = useState("");
   const [isMobile, setIsMobile] = useState(false);
   const [isIOSSafari, setIsIOSSafari] = useState(false);
-  const [isStandaloneIOSWebApp, setIsStandaloneIOSWebApp] = useState(false);
   const [showMobileSelectionToolbar, setShowMobileSelectionToolbar] = useState(false);
   const [toolbarPosition, setToolbarPosition] = useState<{ top: number; left: number } | null>(
     null,
@@ -138,27 +122,7 @@ export function AnnotatedMarkdownMessage(props: Props) {
     return { node, leaves: context.leaves };
   }, [props.content, highlightRanges, commentRanges, isMobile, props.onOpenCommentThread]);
 
-  function clearSelectionPolling() {
-    if (mobileSelectionPollRefs.current.length > 0) {
-      for (const id of mobileSelectionPollRefs.current) {
-        window.clearTimeout(id);
-      }
-      mobileSelectionPollRefs.current = [];
-    }
-  }
-
-  function scheduleMobileSelectionPolling(delays: number[]) {
-    clearSelectionPolling();
-
-    mobileSelectionPollRefs.current = delays.map((delay) =>
-      window.setTimeout(() => {
-        syncSelectionStateFromDOM();
-      }, delay),
-    );
-  }
-
   function clearSelectionUI() {
-    clearSelectionPolling();
     window.getSelection()?.removeAllRanges();
     setSelection(null);
     setSelectionTextSnapshot("");
@@ -238,29 +202,11 @@ export function AnnotatedMarkdownMessage(props: Props) {
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 767px)");
     const sync = () => setIsMobile(mq.matches);
-
-    const syncModes = () => {
-      setIsIOSSafari(detectIOSSafari());
-      setIsStandaloneIOSWebApp(detectStandaloneIOSWebApp());
-    };
-
     sync();
-    syncModes();
-
-    const handler = () => {
-      sync();
-      syncModes();
-    };
-
+    setIsIOSSafari(detectIOSSafari());
+    const handler = () => sync();
     mq.addEventListener("change", handler);
-    window.addEventListener("focus", handler);
-    window.addEventListener("pageshow", handler);
-
-    return () => {
-      mq.removeEventListener("change", handler);
-      window.removeEventListener("focus", handler);
-      window.removeEventListener("pageshow", handler);
-    };
+    return () => mq.removeEventListener("change", handler);
   }, []);
 
   useEffect(() => {
@@ -286,8 +232,6 @@ export function AnnotatedMarkdownMessage(props: Props) {
         window.clearTimeout(safariFollowupId);
       }
 
-      clearSelectionPolling();
-
       timeoutId = window.setTimeout(() => {
         syncSelectionStateFromDOM();
 
@@ -295,10 +239,6 @@ export function AnnotatedMarkdownMessage(props: Props) {
           safariFollowupId = window.setTimeout(() => {
             syncSelectionStateFromDOM();
           }, 120);
-        }
-
-        if (isStandaloneIOSWebApp) {
-          scheduleMobileSelectionPolling([120, 240, 420, 700]);
         }
       }, 60);
     };
@@ -312,10 +252,9 @@ export function AnnotatedMarkdownMessage(props: Props) {
       if (safariFollowupId != null) {
         window.clearTimeout(safariFollowupId);
       }
-      clearSelectionPolling();
       document.removeEventListener("touchend", handleTouchEnd, true);
     };
-  }, [isMobile, isIOSSafari, isStandaloneIOSWebApp, props.content]);
+  }, [isMobile, isIOSSafari, props.content]);
 
   useEffect(() => {
     if (!isMobile) {
@@ -336,15 +275,12 @@ export function AnnotatedMarkdownMessage(props: Props) {
     if (isIOSSafari) {
       setShowMobileSelectionToolbar(false);
 
-      mobileToolbarTimerRef.current = window.setTimeout(
-        () => {
-          const text = window.getSelection()?.toString()?.trim();
-          if (text) {
-            setShowMobileSelectionToolbar(true);
-          }
-        },
-        isStandaloneIOSWebApp ? 180 : 320,
-      );
+      mobileToolbarTimerRef.current = window.setTimeout(() => {
+        const text = window.getSelection()?.toString()?.trim();
+        if (text) {
+          setShowMobileSelectionToolbar(true);
+        }
+      }, 320);
     } else {
       setShowMobileSelectionToolbar(true);
     }
@@ -355,7 +291,7 @@ export function AnnotatedMarkdownMessage(props: Props) {
         mobileToolbarTimerRef.current = null;
       }
     };
-  }, [isMobile, isIOSSafari, isStandaloneIOSWebApp, selection]);
+  }, [isMobile, isIOSSafari, selection]);
 
   useEffect(() => {
     if (!props.onSelectionToolbarVisibleChange) return;
@@ -426,7 +362,6 @@ export function AnnotatedMarkdownMessage(props: Props) {
           setSelectionTextSnapshot("");
           setToolbarPosition(null);
           setShowMobileSelectionToolbar(false);
-          clearSelectionPolling();
 
           window.setTimeout(() => {
             void props.onCreateComment(range, snapshot);
@@ -993,6 +928,7 @@ function renderSegment(
               const selectedText = sel?.toString()?.trim() ?? "";
               const hasActiveSelection = !!sel && !sel.isCollapsed && !!selectedText;
 
+              // 如果用户当前是在选字，就不要打开 thread
               if (hasActiveSelection) return;
 
               if (!segment.topCommentThreadId) return;
