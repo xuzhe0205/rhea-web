@@ -238,9 +238,9 @@ export function AnnotatedMarkdownMessage(props: Props) {
         if (isIOSSafari) {
           safariFollowupId = window.setTimeout(() => {
             syncSelectionStateFromDOM();
-          }, 240);
+          }, 180);
         }
-      }, 120);
+      }, 90);
     };
 
     document.addEventListener("touchend", handleTouchEnd, true);
