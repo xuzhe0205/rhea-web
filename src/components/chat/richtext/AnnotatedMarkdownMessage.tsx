@@ -901,7 +901,7 @@ function renderSegment(
   onOpenCommentThread: (threadId: string) => void,
 ) {
   const isCommented = segment.commentThreadIds.length > 0;
-  const desktopClickable = !isMobile && isCommented && !!segment.topCommentThreadId;
+  const clickable = isCommented && !!segment.topCommentThreadId;
 
   const className = [
     segment.marks.bold ? "font-semibold" : "",
@@ -913,15 +913,24 @@ function renderSegment(
   return (
     <span
       key={segment.key}
+      role={clickable ? "button" : undefined}
+      tabIndex={clickable ? 0 : undefined}
       data-raw-start={segment.rawStart}
       data-raw-end={segment.rawEnd}
       data-comment-thread-ids={isCommented ? segment.commentThreadIds.join(",") : undefined}
-      className={className || undefined}
+      className={[className, clickable && isMobile ? "active:opacity-80" : ""]
+        .filter(Boolean)
+        .join(" ")}
       onClick={
-        desktopClickable
+        clickable
           ? () => {
-              const selected = window.getSelection()?.toString();
-              if (selected && selected.trim()) return;
+              const sel = window.getSelection();
+              const selectedText = sel?.toString()?.trim() ?? "";
+              const hasActiveSelection = !!sel && !sel.isCollapsed && !!selectedText;
+
+              // 如果用户当前是在选字，就不要打开 thread
+              if (hasActiveSelection) return;
+
               if (!segment.topCommentThreadId) return;
               onOpenCommentThread(segment.topCommentThreadId);
             }
@@ -934,7 +943,7 @@ function renderSegment(
             ? HIGHLIGHT_STYLE
             : undefined,
         boxShadow: isCommented ? "inset 0 -1px 0 rgba(96,165,250,0.65)" : undefined,
-        cursor: desktopClickable ? "pointer" : undefined,
+        cursor: clickable && !isMobile ? "pointer" : undefined,
       }}
     >
       {segment.text}
