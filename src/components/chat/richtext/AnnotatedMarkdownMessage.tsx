@@ -349,12 +349,23 @@ export function AnnotatedMarkdownMessage(props: Props) {
         }}
         onComment={() => {
           if (!selection) return;
+
           const snapshot = selectionTextSnapshot || getSelectionSnapshot(props.content, selection);
-
           const range = selection;
-          clearSelectionUI();
 
-          void props.onCreateComment(range, snapshot);
+          window.getSelection()?.removeAllRanges();
+          if (document.activeElement instanceof HTMLElement) {
+            document.activeElement.blur();
+          }
+
+          setSelection(null);
+          setSelectionTextSnapshot("");
+          setToolbarPosition(null);
+          setShowMobileSelectionToolbar(false);
+
+          window.setTimeout(() => {
+            void props.onCreateComment(range, snapshot);
+          }, 60);
         }}
         onDismiss={() => {
           clearSelectionUI();

@@ -58,7 +58,7 @@ export function CommentComposer({
             placeholder="Write your comment…"
             rows={mobile ? 4 : 5}
             maxLength={500}
-            className="w-full resize-none bg-transparent px-1.5 py-1 text-[14px] leading-5 text-white/92 outline-none placeholder:text-white/28"
+            className="w-full resize-none bg-transparent px-1.5 py-1 text-[16px] leading-6 text-white/92 outline-none placeholder:text-white/28"
           />
 
           <div className="mt-2 flex items-center justify-between">
