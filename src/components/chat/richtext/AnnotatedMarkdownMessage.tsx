@@ -238,9 +238,9 @@ export function AnnotatedMarkdownMessage(props: Props) {
         if (isIOSSafari) {
           safariFollowupId = window.setTimeout(() => {
             syncSelectionStateFromDOM();
-          }, 220);
+          }, 120);
         }
-      }, 120);
+      }, 60);
     };
 
     document.addEventListener("touchend", handleTouchEnd, true);
@@ -280,7 +280,7 @@ export function AnnotatedMarkdownMessage(props: Props) {
         if (text) {
           setShowMobileSelectionToolbar(true);
         }
-      }, 380);
+      }, 160);
     } else {
       setShowMobileSelectionToolbar(true);
     }
@@ -351,9 +351,10 @@ export function AnnotatedMarkdownMessage(props: Props) {
           if (!selection) return;
           const snapshot = selectionTextSnapshot || getSelectionSnapshot(props.content, selection);
 
-          void props.onCreateComment(selection, snapshot).then(() => {
-            clearSelectionUI();
-          });
+          const range = selection;
+          clearSelectionUI();
+
+          void props.onCreateComment(range, snapshot);
         }}
         onDismiss={() => {
           clearSelectionUI();

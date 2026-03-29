@@ -8,6 +8,7 @@ import { MessageList } from "@/components/chat/MessageList";
 import { Composer } from "@/components/chat/Composer";
 import { ModelBadge } from "@/components/chat/ModelBadge";
 import { TokenBadge } from "@/components/chat/TokenBadge";
+import { CommentComposer } from "@/components/chat/CommentComposer";
 import { CommentThreadPanel } from "@/components/chat/CommentThreadPanel";
 import { useAuth } from "@/context/AuthContext";
 import { listConversations, patchConversationPin, getConversation } from "@/lib/conversations";
@@ -204,6 +205,13 @@ export function ChatShell() {
 
   const [activeCommentThread, setActiveCommentThread] = useState<CommentThreadDTO | null>(null);
   const [commentPanelOpen, setCommentPanelOpen] = useState(false);
+  const [commentComposerOpen, setCommentComposerOpen] = useState(false);
+  const [commentComposerMobile, setCommentComposerMobile] = useState(false);
+  const [pendingCommentTarget, setPendingCommentTarget] = useState<{
+    messageId: string;
+    range: { start: number; end: number };
+    selectedTextSnapshot: string;
+  } | null>(null);
   const [savingComment, setSavingComment] = useState(false);
   const [deletingCommentId, setDeletingCommentId] = useState<string | null>(null);
 
@@ -328,6 +336,11 @@ export function ChatShell() {
 
     return () => ro.disconnect();
   }, []);
+
+  function isMobileViewport() {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia("(max-width: 767px)").matches;
+  }
 
   function handleThreadScroll() {
     const el = threadRef.current;
@@ -647,26 +660,33 @@ export function ChatShell() {
     range: { start: number; end: number },
     selectedTextSnapshot: string,
   ) {
-    if (!token || !activeConversationId) return;
+    setPendingCommentTarget({
+      messageId,
+      range,
+      selectedTextSnapshot,
+    });
+    setCommentComposerMobile(isMobileViewport());
+    setCommentComposerOpen(true);
+  }
 
-    const content = window.prompt("Add comment");
-    if (!content || !content.trim()) return;
+  async function submitPendingComment(content: string) {
+    if (!token || !activeConversationId || !pendingCommentTarget) return;
 
     setSavingComment(true);
 
     try {
       const res = await addComment(token, {
-        message_id: messageId,
+        message_id: pendingCommentTarget.messageId,
         conv_id: activeConversationId,
-        range_start: range.start,
-        range_end: range.end,
-        selected_text_snapshot: selectedTextSnapshot,
+        range_start: pendingCommentTarget.range.start,
+        range_end: pendingCommentTarget.range.end,
+        selected_text_snapshot: pendingCommentTarget.selectedTextSnapshot,
         content: content.trim(),
       });
 
       setCommentThreadsByConversation((prev) => {
         const currentConv = prev[activeConversationId] ?? {};
-        const currentMsgThreads = currentConv[messageId] ?? [];
+        const currentMsgThreads = currentConv[pendingCommentTarget.messageId] ?? [];
 
         const existingIndex = currentMsgThreads.findIndex((t) => t.id === res.thread.id);
 
@@ -682,10 +702,13 @@ export function ChatShell() {
           ...prev,
           [activeConversationId]: {
             ...currentConv,
-            [messageId]: nextThreads,
+            [pendingCommentTarget.messageId]: nextThreads,
           },
         };
       });
+
+      setCommentComposerOpen(false);
+      setPendingCommentTarget(null);
 
       setActiveCommentThread(res.thread);
       setCommentPanelOpen(true);
@@ -780,6 +803,12 @@ export function ChatShell() {
     } finally {
       setDeletingCommentId(null);
     }
+  }
+
+  function closeCommentComposer() {
+    if (savingComment) return;
+    setCommentComposerOpen(false);
+    setPendingCommentTarget(null);
   }
 
   function onSelectConversation(id: string) {
@@ -1447,6 +1476,15 @@ export function ChatShell() {
         submitting={savingComment}
         onDeleteComment={deleteCommentById}
         deletingCommentId={deletingCommentId}
+      />
+
+      <CommentComposer
+        open={commentComposerOpen}
+        mobile={commentComposerMobile}
+        selectedText={pendingCommentTarget?.selectedTextSnapshot ?? ""}
+        submitting={savingComment}
+        onClose={closeCommentComposer}
+        onSubmit={submitPendingComment}
       />
 
       <FavoriteLabelPopup
