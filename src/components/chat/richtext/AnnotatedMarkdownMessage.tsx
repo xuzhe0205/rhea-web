@@ -272,16 +272,14 @@ export function AnnotatedMarkdownMessage(props: Props) {
       return;
     }
 
-    // On mobile, once our own selection state is stable, drive the toolbar from
-    // React state instead of re-reading live DOM selection text later.
     if (isIOSSafari) {
       setShowMobileSelectionToolbar(false);
 
       mobileToolbarTimerRef.current = window.setTimeout(() => {
-        const hasStableSelection =
-          !!selection && selection.end > selection.start && !!selectionTextSnapshot.trim();
-
-        setShowMobileSelectionToolbar(hasStableSelection);
+        const text = window.getSelection()?.toString()?.trim();
+        if (text) {
+          setShowMobileSelectionToolbar(true);
+        }
       }, 320);
     } else {
       setShowMobileSelectionToolbar(true);
@@ -293,7 +291,7 @@ export function AnnotatedMarkdownMessage(props: Props) {
         mobileToolbarTimerRef.current = null;
       }
     };
-  }, [isMobile, isIOSSafari, selection, selectionTextSnapshot]);
+  }, [isMobile, isIOSSafari, selection]);
 
   useEffect(() => {
     if (!props.onSelectionToolbarVisibleChange) return;
