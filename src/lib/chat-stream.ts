@@ -25,21 +25,6 @@ type StartChatStreamArgs = {
   onEvent: (event: ChatStreamEvent) => void;
 };
 
-const MODEL_METADATA_PREFIX = "::__metadata__:model:";
-const MODEL_METADATA_SUFFIX = "::";
-
-function tryParseModelMetadata(text: string): string | null {
-  const trimmed = text.trim();
-
-  if (trimmed.startsWith(MODEL_METADATA_PREFIX) && trimmed.endsWith(MODEL_METADATA_SUFFIX)) {
-    return trimmed
-      .slice(MODEL_METADATA_PREFIX.length, trimmed.length - MODEL_METADATA_SUFFIX.length)
-      .trim();
-  }
-
-  return null;
-}
-
 /**
  * Parse one SSE data line while preserving real content whitespace.
  *
@@ -98,12 +83,9 @@ export async function startChatStream({
     const data = currentDataLines.join("\n");
 
     if (currentEvent === "delta") {
-      const model = tryParseModelMetadata(data);
-      if (model) {
-        onEvent({ type: "model", value: model });
-      } else {
-        onEvent({ type: "delta", text: data });
-      }
+      onEvent({ type: "delta", text: data });
+    } else if (currentEvent === "model") {
+      onEvent({ type: "model", value: data });
     } else if (currentEvent === "done") {
       onEvent({ type: "done" });
     } else if (currentEvent === "error") {
@@ -134,11 +116,14 @@ export async function startChatStream({
     buffer += decoder.decode(value, { stream: true });
 
     while (true) {
-      const sepIndex = buffer.indexOf("\n\n");
-      if (sepIndex === -1) break;
+      const match = buffer.match(/\r?\n\r?\n/);
+      if (!match || match.index == null) break;
+
+      const sepIndex = match.index;
+      const sepLength = match[0].length;
 
       const rawEventBlock = buffer.slice(0, sepIndex);
-      buffer = buffer.slice(sepIndex + 2);
+      buffer = buffer.slice(sepIndex + sepLength);
 
       const lines = rawEventBlock.split(/\r?\n/);
 
@@ -162,6 +147,8 @@ export async function startChatStream({
       flushEvent();
     }
   }
+
+  buffer += decoder.decode();
 
   if (buffer.trim()) {
     const lines = buffer.split(/\r?\n/);
