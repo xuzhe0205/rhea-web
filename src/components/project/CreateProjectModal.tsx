@@ -18,7 +18,9 @@ export function CreateProjectModal({ token, onClose, onCreated }: Props) {
   const nameRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    nameRef.current?.focus();
+    if (window.matchMedia("(pointer: fine)").matches) {
+      nameRef.current?.focus();
+    }
   }, []);
 
   useEffect(() => {
@@ -101,7 +103,7 @@ export function CreateProjectModal({ token, onClose, onCreated }: Props) {
               maxLength={50}
               className={[
                 "w-full rounded-[var(--radius-md)] border bg-[color:var(--bg-2)] px-3 py-2.5",
-                "text-sm text-[color:var(--text-0)] placeholder:text-[color:var(--text-2)]",
+                "text-base md:text-sm text-[color:var(--text-0)] placeholder:text-[color:var(--text-2)]",
                 "focus:outline-none focus:ring-0 transition",
                 name.length >= 50
                   ? "border-red-500/70"
@@ -144,7 +146,7 @@ export function CreateProjectModal({ token, onClose, onCreated }: Props) {
               rows={3}
               className={[
                 "w-full resize-none rounded-[var(--radius-md)] border bg-[color:var(--bg-2)] px-3 py-2.5",
-                "text-sm text-[color:var(--text-0)] placeholder:text-[color:var(--text-2)]",
+                "text-base md:text-sm text-[color:var(--text-0)] placeholder:text-[color:var(--text-2)]",
                 "focus:outline-none focus:border-[color:var(--accent)] transition",
                 "border-[color:var(--border-0)]",
               ].join(" ")}
