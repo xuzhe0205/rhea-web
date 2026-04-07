@@ -22,6 +22,7 @@ type FavoriteItem = {
   conversationId: string;
   content: string;
   conversationTitle: string;
+  projectId: string | null;
 };
 
 type Project = {
