@@ -6,6 +6,7 @@ type Participant = { id: string; name: string };
 
 export function Topbar(props: {
   title: string;
+  label?: string;
   participants: Participant[];
   onOpenSidebar: () => void;
   onNewConversation?: () => void;
@@ -32,7 +33,7 @@ export function Topbar(props: {
 
           <div className="min-w-0">
             <div className="truncate text-sm text-[color:var(--text-1)]">
-              Conversation
+              {props.label ?? "Conversation"}
             </div>
             <div className="truncate text-[15px] font-medium text-[color:var(--text-0)]">
               {props.title}

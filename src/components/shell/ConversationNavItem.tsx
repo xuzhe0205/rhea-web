@@ -178,7 +178,7 @@ export const ConversationNavItem = React.forwardRef<HTMLDivElement, Props>(
           <span className="ml-1 min-w-0 flex-1 truncate select-none">{title}</span>
 
           {(hovered || pinPending) && (
-            <span className="pointer-events-none absolute right-9 top-1 bottom-1 hidden w-8 bg-gradient-to-l from-[color:var(--bg-2)]/70 to-transparent md:block" />
+            <span className="pointer-events-none absolute right-7 top-1 bottom-1 hidden w-6 bg-gradient-to-l from-[color:var(--bg-2)]/70 to-transparent md:block" />
           )}
         </button>
 
@@ -186,11 +186,7 @@ export const ConversationNavItem = React.forwardRef<HTMLDivElement, Props>(
         {pinned ? (
           <div className="absolute right-2 top-1/2 -translate-y-1/2 md:hidden pointer-events-none">
             <span
-              className={[
-                "inline-flex h-7 w-7 items-center justify-center rounded-full border",
-                "border-[color:var(--border-0)] bg-[color:var(--bg-1)]/92 backdrop-blur-sm",
-                "text-[color:var(--accent)] brightness-125 shadow-[0_0_0_1px_rgba(94,124,226,0.10)]",
-              ].join(" ")}
+              className="inline-flex h-6 w-6 items-center justify-center text-[color:var(--accent)] brightness-125"
               aria-hidden="true"
             >
               <PinIcon filled />
@@ -216,11 +212,11 @@ export const ConversationNavItem = React.forwardRef<HTMLDivElement, Props>(
               onTogglePin?.();
             }}
             className={[
-              "inline-flex h-7 w-7 items-center justify-center rounded-full border transition-all duration-200",
-              "border-[color:var(--border-0)] bg-[color:var(--bg-1)]/92 backdrop-blur-sm",
+              "inline-flex h-6 w-6 items-center justify-center rounded-[var(--radius-md)] transition-all duration-200",
+              "hover:bg-[color:var(--bg-3)]",
               pinned
-                ? "text-[color:var(--accent)] brightness-125 shadow-[0_0_0_1px_rgba(94,124,226,0.10)] hover:bg-[color:var(--bg-2)]"
-                : "text-[color:var(--text-2)] hover:bg-[color:var(--bg-2)] hover:text-[color:var(--text-0)]",
+                ? "text-[color:var(--accent)] brightness-125"
+                : "text-[color:var(--text-2)] hover:text-[color:var(--text-0)]",
               pinPending ? "scale-110" : "scale-100",
             ].join(" ")}
           >

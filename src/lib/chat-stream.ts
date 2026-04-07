@@ -5,6 +5,16 @@ export type ChatStreamRequest = {
   conversation_id?: string;
 };
 
+export type RagStats = {
+  chunks_used: number;
+  top_score: number;
+  avg_score: number;
+  vector_hits: number;
+  keyword_hits: number;
+  mode: "none" | "vector" | "keyword" | "hybrid";
+  scope: string;
+};
+
 export type ChatStreamEvent =
   | { type: "delta"; text: string }
   | { type: "done" }
@@ -16,7 +26,8 @@ export type ChatStreamEvent =
       assistantMessageId?: string;
       title?: string;
     }
-  | { type: "model"; value: string };
+  | { type: "model"; value: string }
+  | { type: "rag"; stats: RagStats };
 
 type StartChatStreamArgs = {
   token: string;
@@ -102,6 +113,13 @@ export async function startChatStream({
         });
       } catch {
         onEvent({ type: "meta" });
+      }
+    } else if (currentEvent === "rag") {
+      try {
+        const parsed = JSON.parse(data);
+        onEvent({ type: "rag", stats: parsed as RagStats });
+      } catch {
+        // ignore malformed rag events
       }
     }
 

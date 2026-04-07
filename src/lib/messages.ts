@@ -15,6 +15,7 @@ export type FavoriteMessageDTO = {
   id: string;
   conv_id?: string;
   conversationId?: string;
+  project_id?: string | null;
   role: "user" | "assistant";
   content: string;
   created_at?: string;

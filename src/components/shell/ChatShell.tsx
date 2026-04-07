@@ -8,10 +8,14 @@ import { MessageList } from "@/components/chat/MessageList";
 import { Composer } from "@/components/chat/Composer";
 import { ModelBadge } from "@/components/chat/ModelBadge";
 import { TokenBadge } from "@/components/chat/TokenBadge";
+import { RagBadge } from "@/components/chat/RagBadge";
 import { CommentComposer } from "@/components/chat/CommentComposer";
 import { CommentThreadPanel } from "@/components/chat/CommentThreadPanel";
 import { useAuth } from "@/context/AuthContext";
 import { listConversations, patchConversationPin, getConversation } from "@/lib/conversations";
+import { listProjects, type ProjectDTO } from "@/lib/projects";
+import { CreateProjectModal } from "@/components/project/CreateProjectModal";
+import { ProjectWorkspace } from "@/components/project/ProjectWorkspace";
 import {
   listConversationMessages,
   listFavoriteMessages,
@@ -20,7 +24,7 @@ import {
   patchMessageFavoriteLabel,
   type FavoriteMessageDTO,
 } from "@/lib/messages";
-import { startChatStream } from "@/lib/chat-stream";
+import { startChatStream, type RagStats } from "@/lib/chat-stream";
 import {
   createHighlightAnnotation,
   groupAnnotationsByMessageId,
@@ -64,6 +68,7 @@ type Conversation = {
 type FavoriteItem = {
   id: string;
   conversationId: string;
+  projectId: string | null;
   content: string;
   conversationTitle: string;
 };
@@ -162,6 +167,9 @@ export function ChatShell() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loadingConvs, setLoadingConvs] = useState(false);
 
+  const [projects, setProjects] = useState<ProjectDTO[]>([]);
+  const [createProjectModalOpen, setCreateProjectModalOpen] = useState(false);
+
   const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
   const [loadingFavorites, setLoadingFavorites] = useState(false);
   const [togglingFavoriteId, setTogglingFavoriteId] = useState<string | null>(null);
@@ -183,6 +191,8 @@ export function ChatShell() {
     Record<string, number | null>
   >({});
   const [loadingTokenSumFor, setLoadingTokenSumFor] = useState<string | null>(null);
+
+  const [ragStatsByConversation, setRagStatsByConversation] = useState<Record<string, RagStats>>({});
 
   const [annotationsByConversation, setAnnotationsByConversation] = useState<
     Record<string, Record<string, AnnotationDTO[]>>
@@ -219,6 +229,7 @@ export function ChatShell() {
   const [footerHeight, setFooterHeight] = useState(0);
   const pendingMessagesRef = useRef<Msg[]>([]);
   const pendingSelectedModelRef = useRef<string | null>(null);
+  const pendingAutoSendRef = useRef<{ convId: string; message: string } | null>(null);
   const threadRef = useRef<HTMLDivElement | null>(null);
   const topSentinelRef = useRef<HTMLDivElement | null>(null);
   const shouldStickToBottomRef = useRef(true);
@@ -240,13 +251,22 @@ export function ChatShell() {
     [],
   );
 
-  const activeConversationId = typeof params?.id === "string" ? params.id : null;
+  // /c/[id]  →  params.id
+  // /p/[projectId]/c/[conversationId]  →  params.conversationId
+  const activeConversationId =
+    typeof params?.id === "string"
+      ? params.id
+      : typeof params?.conversationId === "string"
+        ? params.conversationId
+        : null;
+  const activeProjectId = typeof params?.projectId === "string" ? params.projectId : null;
+  const isProjectThread = !!(activeProjectId && activeConversationId);
 
   useEffect(() => {
     if (!token) return;
     void (async () => {
       const convs = await refreshConversations();
-      await refreshFavorites(convs);
+      await Promise.all([refreshFavorites(convs), refreshProjects()]);
     })();
   }, [token]);
 
@@ -259,6 +279,17 @@ export function ChatShell() {
 
     void loadConversationMessages(activeConversationId);
   }, [activeConversationId, token]);
+
+  // Auto-send initial message when navigating to a freshly created project thread.
+  useEffect(() => {
+    if (!activeConversationId) return;
+    const pending = pendingAutoSendRef.current;
+    if (!pending || pending.convId !== activeConversationId) return;
+
+    pendingAutoSendRef.current = null;
+    void onSend(pending.message);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeConversationId]);
 
   useEffect(() => {
     requestAnimationFrame(() => {
@@ -368,6 +399,16 @@ export function ChatShell() {
     }
   }
 
+  async function refreshProjects() {
+    if (!token) return;
+    try {
+      const rows = await listProjects(token);
+      setProjects(rows ?? []);
+    } catch {
+      setProjects([]);
+    }
+  }
+
   async function handleTogglePin(conversationId: string, nextPinned: boolean) {
     if (!token) return;
 
@@ -406,16 +447,22 @@ export function ChatShell() {
       const rows = await listFavoriteMessages(token, 50, 0);
       const convs = currentConversations ?? conversations;
       const titleById = new Map(convs.map((c) => [c.id, c.title]));
+      const projectById = new Map(projects.map((p) => [p.id, p.name]));
 
       const mapped: FavoriteItem[] = (rows ?? []).map((row: FavoriteMessageDTO) => {
         const conversationId = row.conv_id || row.conversationId || "";
+        const projectId = row.project_id ?? null;
+        const conversationTitle = projectId
+          ? (projectById.get(projectId) ?? "Thread")
+          : (titleById.get(conversationId) ?? "Conversation");
         return {
           id: row.id,
           conversationId,
+          projectId,
           content:
             (row.favorite_label && row.favorite_label.trim()) ||
             getMessagePreview(row.content || ""),
-          conversationTitle: titleById.get(conversationId) ?? "Conversation",
+          conversationTitle,
         };
       });
 
@@ -441,10 +488,13 @@ export function ChatShell() {
       const rows = await listConversationMessages(token, conversationId, PAGE_SIZE);
       const mapped = sortMessagesAsc((rows ?? []).map(normalizeMessage));
 
-      setMessagesByConversation((prev) => ({
-        ...prev,
-        [conversationId]: mapped,
-      }));
+      setMessagesByConversation((prev) => {
+        // Guard: if onSend already seeded optimistic messages for this conversation
+        // (e.g., auto-send for a new project thread), don't overwrite them.
+        const current = prev[conversationId];
+        if (current && current.length > 0) return prev;
+        return { ...prev, [conversationId]: mapped };
+      });
 
       setHasMoreByConversation((prev) => ({
         ...prev,
@@ -838,7 +888,10 @@ export function ChatShell() {
 
       await loadConversationAnnotations(fav.conversationId, mapped);
 
-      router.push(`/c/${fav.conversationId}`);
+      const dest = fav.projectId
+        ? `/p/${fav.projectId}/c/${fav.conversationId}`
+        : `/c/${fav.conversationId}`;
+      router.push(dest);
       setSidebarOpen(false);
 
       requestAnimationFrame(() => {
@@ -1097,6 +1150,14 @@ export function ChatShell() {
             return;
           }
 
+          if (event.type === "rag") {
+            const convId = resolvedConversationId || activeConversationId;
+            if (convId) {
+              setRagStatsByConversation((prev) => ({ ...prev, [convId]: event.stats }));
+            }
+            return;
+          }
+
           if (event.type === "model") {
             if (isNewConversation) {
               setPendingSelectedModel(event.value);
@@ -1273,9 +1334,13 @@ export function ChatShell() {
     ? (annotationsByConversation[activeConversationId] ?? {})
     : {};
 
-  const activeTitle = activeConversationId
-    ? (conversations.find((c) => c.id === activeConversationId)?.title ?? "Conversation")
-    : "RHEA Index";
+  const activeTitle = activeProjectId
+    ? (projects.find((p) => p.id === activeProjectId)?.name ?? "Project")
+    : activeConversationId
+      ? (conversations.find((c) => c.id === activeConversationId)?.title ?? "Conversation")
+      : "RHEA Index";
+
+  const topbarLabel = isProjectThread ? "Thread" : activeProjectId ? "Project" : undefined;
 
   const activeSelectedModel = activeConversationId
     ? (selectedModelByConversation[activeConversationId] ?? null)
@@ -1289,9 +1354,13 @@ export function ChatShell() {
           onClose={() => setSidebarOpen(false)}
           conversations={conversations}
           favorites={favorites}
+          projects={projects}
           activeConversationId={activeConversationId}
+          activeProjectId={activeProjectId}
           onSelectConversation={onSelectConversation}
           onSelectFavorite={onSelectFavorite}
+          onSelectProject={(id) => { router.push(`/p/${id}`); setSidebarOpen(false); }}
+          onCreateProject={() => setCreateProjectModalOpen(true)}
           onCreateConversation={createConversationLocal}
           onTogglePin={handleTogglePin}
         />
@@ -1299,12 +1368,30 @@ export function ChatShell() {
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <Topbar
             title={activeTitle}
+            label={topbarLabel}
             participants={participants}
             onOpenSidebar={() => setSidebarOpen(true)}
             onNewConversation={createConversationLocal}
           />
 
-          {!activeConversationId && pendingMessages.length === 0 ? (
+          {activeProjectId && !isProjectThread ? (
+            <ProjectWorkspace
+              projectId={activeProjectId}
+              token={token!}
+              onNavigateToConversation={(id, initialMessage) => {
+                if (initialMessage) {
+                  pendingAutoSendRef.current = { convId: id, message: initialMessage };
+                }
+                router.push(`/p/${activeProjectId}/c/${id}`);
+                setSidebarOpen(false);
+              }}
+              onProjectDeleted={() => {
+                void refreshProjects();
+                router.push("/");
+              }}
+              onProjectUpdated={() => void refreshProjects()}
+            />
+          ) : !activeConversationId && pendingMessages.length === 0 ? (
             <main className="flex flex-1 items-center justify-center px-4 md:px-6">
               <div className="w-full max-w-3xl">
                 <WelcomeComposer
@@ -1442,6 +1529,10 @@ export function ChatShell() {
                           loading={loadingTokenSumFor === activeConversationId}
                         />
                       ) : null}
+
+                      {activeConversationId && ragStatsByConversation[activeConversationId] ? (
+                        <RagBadge stats={ragStatsByConversation[activeConversationId]} />
+                      ) : null}
                     </div>
                   )}
 
@@ -1495,6 +1586,18 @@ export function ChatShell() {
         onClose={() => setFavoriteLabelTarget(null)}
         onSave={saveFavoriteLabel}
       />
+
+      {createProjectModalOpen && token && (
+        <CreateProjectModal
+          token={token}
+          onClose={() => setCreateProjectModalOpen(false)}
+          onCreated={(project) => {
+            setCreateProjectModalOpen(false);
+            void refreshProjects();
+            router.push(`/p/${project.id}`);
+          }}
+        />
+      )}
     </div>
   );
 }
