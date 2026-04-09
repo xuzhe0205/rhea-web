@@ -12,6 +12,7 @@ type Msg = {
   content: string;
   createdAt?: string;
   status?: "streaming" | "done" | "error";
+  imageUrls?: string[];
 };
 
 const USER_COLLAPSED_MAX_HEIGHT = 160;
@@ -149,6 +150,22 @@ export function MessageBlock({
               aria-hidden="true"
             />
           ) : null}
+
+          {/* Attached images — shown above text for user messages */}
+          {isUser && msg.imageUrls && msg.imageUrls.length > 0 && (
+            <div className="mb-3 flex flex-wrap gap-2">
+              {msg.imageUrls.map((url, i) => (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  key={i}
+                  src={url}
+                  alt={`Attached image ${i + 1}`}
+                  className="h-40 max-w-[220px] rounded-2xl object-cover"
+                  draggable={false}
+                />
+              ))}
+            </div>
+          )}
 
           <div className={isUser && isOverflowing && !expanded ? "relative" : ""}>
             <div

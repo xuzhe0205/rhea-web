@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react"; // useRef kept for actionsRef
+import { ThreadComposer } from "./ThreadComposer";
 import {
   getProject,
   listProjectConversations,
@@ -38,7 +39,7 @@ function formatDate(iso: string): string {
 type Props = {
   projectId: string;
   token: string;
-  onNavigateToConversation: (id: string, initialMessage?: string) => void;
+  onNavigateToConversation: (id: string, initialMessage?: string, imageUrls?: string[]) => void;
   onProjectDeleted: () => void;
   onProjectUpdated: () => void;
 };
@@ -69,10 +70,6 @@ export function ProjectWorkspace({
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  const [draft, setDraft] = useState("");
-  const [starting, setStarting] = useState(false);
-  const [startError, setStartError] = useState<string | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // ─── Load data ─────────────────────────────────────────────────────────────
 
@@ -166,26 +163,9 @@ export function ProjectWorkspace({
 
   // ─── Start new thread ──────────────────────────────────────────────────────
 
-  async function handleStartThread() {
-    const trimmed = draft.trim();
-    if (!trimmed) return;
-    setStarting(true);
-    setStartError(null);
-    try {
-      const res = await createProjectConversation(token, projectId, { message: trimmed });
-      setDraft("");
-      onNavigateToConversation(res.id, trimmed);
-    } catch (err) {
-      setStartError(err instanceof Error ? err.message : "Failed to start thread.");
-      setStarting(false);
-    }
-  }
-
-  function handleComposerKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault();
-      void handleStartThread();
-    }
+  async function handleStartThread(message: string, imageUrls?: string[]) {
+    const res = await createProjectConversation(token, projectId, { message });
+    onNavigateToConversation(res.id, message, imageUrls);
   }
 
   // ─── Render ────────────────────────────────────────────────────────────────
@@ -343,45 +323,7 @@ export function ProjectWorkspace({
           </div>
 
           {/* ── Thread Starter ──────────────────────────────────────────── */}
-          <div className="rounded-[var(--radius-lg)] border border-[color:var(--border-0)] bg-[color:var(--bg-1)] px-4 pt-4 pb-3 transition focus-within:border-[color:var(--accent)]/40">
-            <textarea
-              ref={textareaRef}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={handleComposerKeyDown}
-              placeholder="Start a new thread in this project…"
-              rows={3}
-              disabled={starting}
-              className="w-full resize-none bg-transparent text-sm leading-relaxed text-[color:var(--text-0)] placeholder:text-[color:var(--text-2)] focus:outline-none disabled:opacity-60"
-            />
-
-            <div className="flex items-center justify-between pt-2">
-              <span className="text-xs text-[color:var(--text-2)]">
-                Threads here share project context.
-              </span>
-              <button
-                type="button"
-                onClick={() => void handleStartThread()}
-                disabled={!draft.trim() || starting}
-                className={[
-                  "flex items-center gap-1.5 rounded-[var(--radius-md)] px-3 py-1.5 text-xs font-medium transition",
-                  "bg-[color:var(--accent)] text-white hover:opacity-90 active:opacity-80",
-                  "disabled:opacity-30 disabled:cursor-not-allowed",
-                ].join(" ")}
-              >
-                {starting ? "Starting…" : (
-                  <>
-                    Start thread
-                    <ArrowIcon />
-                  </>
-                )}
-              </button>
-            </div>
-
-            {startError && (
-              <p className="mt-2 text-xs text-red-400">{startError}</p>
-            )}
-          </div>
+          <ThreadComposer token={token} onSubmit={handleStartThread} />
 
           {/* ── Conversations ───────────────────────────────────────────── */}
           <div>
@@ -659,14 +601,6 @@ function TrashIcon() {
   return (
     <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true">
       <path d="M2 3.5h9M5 3.5V2.5a.5.5 0 01.5-.5h2a.5.5 0 01.5.5v1M10.5 3.5l-.5 7a.5.5 0 01-.5.5h-5a.5.5 0 01-.5-.5l-.5-7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function ArrowIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-      <path d="M2.5 6h7M6.5 3l3 3-3 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

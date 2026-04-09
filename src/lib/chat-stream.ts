@@ -3,6 +3,7 @@ import { API_BASE } from "@/lib/api";
 export type ChatStreamRequest = {
   message: string;
   conversation_id?: string;
+  image_urls?: string[];
 };
 
 export type RagStats = {

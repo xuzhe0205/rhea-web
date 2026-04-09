@@ -11,6 +11,7 @@ type Msg = {
   createdAt?: string;
   isFavorite?: boolean;
   status?: "streaming" | "done" | "error";
+  imageUrls?: string[];
 };
 
 export function MessageList({

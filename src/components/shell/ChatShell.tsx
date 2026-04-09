@@ -55,6 +55,7 @@ type Msg = {
   isFavorite?: boolean;
   favoriteLabel?: string | null;
   status?: "streaming" | "done" | "error";
+  imageUrls?: string[];
 };
 
 type Conversation = {
@@ -229,7 +230,7 @@ export function ChatShell() {
   const [footerHeight, setFooterHeight] = useState(0);
   const pendingMessagesRef = useRef<Msg[]>([]);
   const pendingSelectedModelRef = useRef<string | null>(null);
-  const pendingAutoSendRef = useRef<{ convId: string; message: string } | null>(null);
+  const pendingAutoSendRef = useRef<{ convId: string; message: string; imageUrls?: string[] } | null>(null);
   const threadRef = useRef<HTMLDivElement | null>(null);
   const topSentinelRef = useRef<HTMLDivElement | null>(null);
   const shouldStickToBottomRef = useRef(true);
@@ -287,7 +288,7 @@ export function ChatShell() {
     if (!pending || pending.convId !== activeConversationId) return;
 
     pendingAutoSendRef.current = null;
-    void onSend(pending.message);
+    void onSend(pending.message, pending.imageUrls);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeConversationId]);
 
@@ -1000,9 +1001,10 @@ export function ChatShell() {
     setSidebarOpen(false);
   }
 
-  async function onSend(text: string): Promise<boolean> {
+  async function onSend(text: string, imageUrls?: string[]): Promise<boolean> {
     const trimmed = text.trim();
-    if (!trimmed || !token) return false;
+    const hasContent = trimmed.length > 0 || (imageUrls && imageUrls.length > 0);
+    if (!hasContent || !token) return false;
     if (streamingConversationId) return false;
 
     const userMessageId = crypto.randomUUID();
@@ -1026,6 +1028,7 @@ export function ChatShell() {
           content: trimmed,
           createdAt: nowIso,
           status: "done",
+          imageUrls,
         },
         {
           id: assistantMessageId,
@@ -1051,6 +1054,7 @@ export function ChatShell() {
               content: trimmed,
               createdAt: nowIso,
               status: "done",
+              imageUrls,
             },
             {
               id: assistantMessageId,
@@ -1087,9 +1091,11 @@ export function ChatShell() {
     try {
       await startChatStream({
         token,
-        body: isNewConversation
-          ? { message: trimmed }
-          : { message: trimmed, conversation_id: activeConversationId! },
+        body: {
+          message: trimmed,
+          ...(isNewConversation ? {} : { conversation_id: activeConversationId! }),
+          ...(imageUrls && imageUrls.length > 0 ? { image_urls: imageUrls } : {}),
+        },
 
         onEvent: (event) => {
           if (event.type === "meta") {
@@ -1378,9 +1384,9 @@ export function ChatShell() {
             <ProjectWorkspace
               projectId={activeProjectId}
               token={token!}
-              onNavigateToConversation={(id, initialMessage) => {
+              onNavigateToConversation={(id, initialMessage, imageUrls) => {
                 if (initialMessage) {
-                  pendingAutoSendRef.current = { convId: id, message: initialMessage };
+                  pendingAutoSendRef.current = { convId: id, message: initialMessage, imageUrls };
                 }
                 router.push(`/p/${activeProjectId}/c/${id}`);
                 setSidebarOpen(false);
@@ -1396,6 +1402,7 @@ export function ChatShell() {
               <div className="w-full max-w-3xl">
                 <WelcomeComposer
                   userName={me?.user_name || me?.email || "there"}
+                  token={token!}
                   onSend={onSend}
                   disabled={!!streamingConversationId}
                 />
@@ -1537,6 +1544,7 @@ export function ChatShell() {
                   )}
 
                   <Composer
+                    token={token!}
                     participants={participants}
                     onSend={onSend}
                     disabled={!!streamingConversationId}
@@ -1604,7 +1612,8 @@ export function ChatShell() {
 
 function WelcomeComposer(props: {
   userName: string;
-  onSend: (text: string) => Promise<boolean>;
+  token: string;
+  onSend: (text: string, imageUrls?: string[]) => Promise<boolean>;
   disabled?: boolean;
 }) {
   return (
@@ -1615,7 +1624,7 @@ function WelcomeComposer(props: {
         </div>
 
         <div className="mt-6">
-          <Composer participants={[]} onSend={props.onSend} disabled={props.disabled} />
+          <Composer token={props.token} participants={[]} onSend={props.onSend} disabled={props.disabled} />
         </div>
 
         <div className="mt-6 grid gap-3 sm:grid-cols-2">
