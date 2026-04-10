@@ -4,6 +4,7 @@ export type ChatStreamRequest = {
   message: string;
   conversation_id?: string;
   image_urls?: string[];
+  image_keys?: string[];
 };
 
 export type RagStats = {

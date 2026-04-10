@@ -16,7 +16,7 @@ export function Composer({
 }: {
   token: string;
   participants: Participant[];
-  onSend: (text: string, imageUrls?: string[]) => Promise<boolean>;
+  onSend: (text: string, imageUrls?: string[], imageKeys?: string[]) => Promise<boolean>;
   disabled?: boolean;
 }) {
   const [value, setValue] = useState("");
@@ -29,7 +29,7 @@ export function Composer({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const { images, readyUrls, addFiles, removeImage, clearAll } = useImageAttach(token);
+  const { images, readyUrls, readyKeys, addFiles, removeImage, clearAll } = useImageAttach(token);
 
   const atLimit = images.filter((i) => i.status !== "error").length >= MAX_IMAGES;
   const hasImages = images.length > 0;
@@ -100,11 +100,12 @@ export function Composer({
     if (!hasContent || disabled) return;
 
     const urls = readyUrls.length > 0 ? readyUrls : undefined;
+    const keys = readyKeys.length > 0 ? readyKeys : undefined;
     // Clear immediately — content is captured above, images appear in the optimistic bubble
     setValue("");
     setMentionOpen(false);
     clearAll();
-    await onSend(trimmed, urls);
+    await onSend(trimmed, urls, keys);
   }
 
   // ─── Keyboard ─────────────────────────────────────────────────────────────

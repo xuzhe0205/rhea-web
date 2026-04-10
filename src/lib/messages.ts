@@ -9,6 +9,7 @@ export type MessageDTO = {
   is_favorite?: boolean;
   favorited_at?: string | null;
   favorite_label?: string | null;
+  metadata?: Record<string, unknown>;
 };
 
 export type FavoriteMessageDTO = {

@@ -6,7 +6,7 @@ import { useImageAttach, MAX_IMAGES } from "@/hooks/useImageAttach";
 
 type Props = {
   token: string;
-  onSubmit: (message: string, imageUrls?: string[]) => Promise<void>;
+  onSubmit: (message: string, imageUrls?: string[], imageKeys?: string[]) => Promise<void>;
 };
 
 export function ThreadComposer({ token, onSubmit }: Props) {
@@ -19,7 +19,7 @@ export function ThreadComposer({ token, onSubmit }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const { images, readyUrls, addFiles, removeImage, clearAll } = useImageAttach(token);
+  const { images, readyUrls, readyKeys, addFiles, removeImage, clearAll } = useImageAttach(token);
 
   const atLimit = images.filter((i) => i.status !== "error").length >= MAX_IMAGES;
   const activeImageCount = images.filter((i) => i.status !== "error").length;
@@ -49,10 +49,11 @@ export function ThreadComposer({ token, onSubmit }: Props) {
     setError(null);
     try {
       const urls = readyUrls.length > 0 ? readyUrls : undefined;
+      const keys = readyKeys.length > 0 ? readyKeys : undefined;
       // Clear immediately — content is captured above
       setDraft("");
       clearAll();
-      await onSubmit(trimmed, urls);
+      await onSubmit(trimmed, urls, keys);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start thread.");
     } finally {

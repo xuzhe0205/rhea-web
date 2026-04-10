@@ -81,6 +81,11 @@ export function useImageAttach(token: string) {
     .filter((i) => i.status === "done" && i.url)
     .map((i) => i.url!);
 
+  /** R2 object keys of successfully uploaded images — sent alongside URLs so the backend can persist them. */
+  const readyKeys = images
+    .filter((i) => i.status === "done" && i.key)
+    .map((i) => i.key!);
+
   /**
    * Add files from a picker, drop, or paste event.
    * Returns any validation error strings (caller can surface them).
@@ -185,5 +190,5 @@ export function useImageAttach(token: string) {
     try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
   }, []);
 
-  return { images, readyUrls, addFiles, removeImage, clearAll };
+  return { images, readyUrls, readyKeys, addFiles, removeImage, clearAll };
 }

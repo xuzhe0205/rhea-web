@@ -89,6 +89,10 @@ function normalizePinnedAt(c: any) {
 }
 
 function normalizeMessage(m: any): Msg {
+  const imageUrls: string[] | undefined =
+    Array.isArray(m.metadata?.image_urls) && m.metadata.image_urls.length > 0
+      ? (m.metadata.image_urls as string[])
+      : undefined;
   return {
     id: m.id,
     role: m.role === "assistant" ? "assistant" : "user",
@@ -97,6 +101,7 @@ function normalizeMessage(m: any): Msg {
     isFavorite: !!(m.is_favorite ?? m.isFavorite),
     favoriteLabel: m.favorite_label ?? m.favoriteLabel ?? null,
     status: "done",
+    imageUrls,
   };
 }
 
@@ -1001,7 +1006,7 @@ export function ChatShell() {
     setSidebarOpen(false);
   }
 
-  async function onSend(text: string, imageUrls?: string[]): Promise<boolean> {
+  async function onSend(text: string, imageUrls?: string[], imageKeys?: string[]): Promise<boolean> {
     const trimmed = text.trim();
     const hasContent = trimmed.length > 0 || (imageUrls && imageUrls.length > 0);
     if (!hasContent || !token) return false;
@@ -1095,6 +1100,7 @@ export function ChatShell() {
           message: trimmed,
           ...(isNewConversation ? {} : { conversation_id: activeConversationId! }),
           ...(imageUrls && imageUrls.length > 0 ? { image_urls: imageUrls } : {}),
+          ...(imageKeys && imageKeys.length > 0 ? { image_keys: imageKeys } : {}),
         },
 
         onEvent: (event) => {
@@ -1613,7 +1619,7 @@ export function ChatShell() {
 function WelcomeComposer(props: {
   userName: string;
   token: string;
-  onSend: (text: string, imageUrls?: string[]) => Promise<boolean>;
+  onSend: (text: string, imageUrls?: string[], imageKeys?: string[]) => Promise<boolean>;
   disabled?: boolean;
 }) {
   return (
