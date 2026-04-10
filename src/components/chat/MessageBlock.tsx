@@ -29,6 +29,7 @@ export function MessageBlock({
   onCreateComment,
   onOpenCommentThread,
   onSelectionToolbarVisibleChange,
+  onShare,
   mobileFooterOffset,
 }: {
   msg: Msg;
@@ -45,6 +46,7 @@ export function MessageBlock({
   ) => Promise<void>;
   onOpenCommentThread: (threadId: string) => void;
   onSelectionToolbarVisibleChange?: (visible: boolean) => void;
+  onShare?: () => void;
   mobileFooterOffset?: number;
 }) {
   const isUser = msg.role === "user";
@@ -105,7 +107,27 @@ export function MessageBlock({
           </div>
         </div>
 
-        <div className="pointer-events-none sticky top-2 z-20 -mt-9 mb-2 flex justify-end">
+        <div className="pointer-events-none sticky top-2 z-20 -mt-9 mb-2 flex items-center justify-end gap-1">
+          {/* Share button */}
+          {onShare && !isStreaming && (
+            <button
+              type="button"
+              aria-label="Share message"
+              title="Share message"
+              onClick={onShare}
+              className={[
+                "pointer-events-auto inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
+                "border border-[color:var(--border-0)] bg-[color:var(--bg-1)]/72",
+                "transition cursor-pointer text-[color:var(--text-2)]",
+                "hover:bg-[color:var(--bg-3)] hover:text-[color:var(--text-0)] active:scale-[0.97]",
+                "opacity-80 md:opacity-0 md:group-hover:opacity-100",
+              ].join(" ")}
+            >
+              <ShareIcon />
+            </button>
+          )}
+
+          {/* Bookmark button */}
           <button
             type="button"
             aria-label={isFavorite ? "Remove from favorites" : "Add to favorites"}
@@ -242,6 +264,17 @@ function BlinkingCaret() {
       className="inline-block h-4 w-[7px] animate-pulse rounded-[2px] bg-[color:var(--accent)]"
       aria-hidden="true"
     />
+  );
+}
+
+function ShareIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+      <circle cx="11" cy="2.5" r="1.5" stroke="currentColor" strokeWidth="1.2" />
+      <circle cx="11" cy="11.5" r="1.5" stroke="currentColor" strokeWidth="1.2" />
+      <circle cx="2.5" cy="7" r="1.5" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M4 7l5.5-3.5M4 7l5.5 3.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
   );
 }
 

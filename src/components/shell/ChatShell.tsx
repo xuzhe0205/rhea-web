@@ -44,6 +44,8 @@ import {
   applyOptimisticHighlightRemove,
 } from "@/components/chat/richtext/highlight-optimistic";
 import { FavoriteLabelPopup } from "@/components/shell/FavoriteLabelPopup";
+import { ShareModal } from "@/components/share/ShareModal";
+import { createShareLink } from "@/lib/share";
 
 type Participant = { id: string; name: string };
 
@@ -199,6 +201,8 @@ export function ChatShell() {
   const [loadingTokenSumFor, setLoadingTokenSumFor] = useState<string | null>(null);
 
   const [ragStatsByConversation, setRagStatsByConversation] = useState<Record<string, RagStats>>({});
+
+  const [shareModal, setShareModal] = useState<{ url: string; preview: string } | null>(null);
 
   const [annotationsByConversation, setAnnotationsByConversation] = useState<
     Record<string, Record<string, AnnotationDTO[]>>
@@ -1006,6 +1010,33 @@ export function ChatShell() {
     setSidebarOpen(false);
   }
 
+  async function handleShare(messageId: string) {
+    if (!token || !activeConversationId) return;
+    const msgs = messagesByConversation[activeConversationId] ?? [];
+    const msg = msgs.find((m) => m.id === messageId);
+    try {
+      const { url } = await createShareLink(token, [messageId]);
+      // On mobile (touch-primary devices only), use native share sheet if available
+      const isTouchPrimary =
+        typeof window !== "undefined" &&
+        window.matchMedia("(hover: none) and (pointer: coarse)").matches;
+      if (isTouchPrimary && typeof navigator !== "undefined" && navigator.share) {
+        try {
+          await navigator.share({ title: "Shared from RHEA Index", url });
+          return;
+        } catch {
+          // User cancelled or API failed — fall through to modal
+        }
+      }
+      setShareModal({
+        url,
+        preview: msg?.content?.slice(0, 120) ?? "",
+      });
+    } catch (err) {
+      console.error("Failed to create share link:", err);
+    }
+  }
+
   async function onSend(text: string, imageUrls?: string[], imageKeys?: string[]): Promise<boolean> {
     const trimmed = text.trim();
     const hasContent = trimmed.length > 0 || (imageUrls && imageUrls.length > 0);
@@ -1519,6 +1550,7 @@ export function ChatShell() {
                         onCreateComment={createCommentForRange}
                         onOpenCommentThread={openCommentThreadById}
                         onSelectionToolbarVisibleChange={setMobileSelectionToolbarVisible}
+                        onShare={handleShare}
                         mobileFooterOffset={footerHeight}
                       />
                       <div className="h-6" />
@@ -1590,6 +1622,13 @@ export function ChatShell() {
         submitting={savingComment}
         onClose={closeCommentComposer}
         onSubmit={submitPendingComment}
+      />
+
+      <ShareModal
+        isOpen={!!shareModal}
+        url={shareModal?.url ?? ""}
+        preview={shareModal?.preview ?? ""}
+        onClose={() => setShareModal(null)}
       />
 
       <FavoriteLabelPopup

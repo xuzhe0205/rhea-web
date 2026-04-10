@@ -25,6 +25,7 @@ export function MessageList({
   onCreateComment,
   onOpenCommentThread,
   onSelectionToolbarVisibleChange,
+  onShare,
   mobileFooterOffset,
 }: {
   messages: Msg[];
@@ -44,6 +45,7 @@ export function MessageList({
   ) => Promise<void>;
   onOpenCommentThread: (threadId: string) => void;
   onSelectionToolbarVisibleChange?: (visible: boolean) => void;
+  onShare?: (messageId: string) => void;
   mobileFooterOffset?: number;
 }) {
   return (
@@ -64,6 +66,7 @@ export function MessageList({
             }
             onOpenCommentThread={onOpenCommentThread}
             onSelectionToolbarVisibleChange={onSelectionToolbarVisibleChange}
+            onShare={onShare ? () => onShare(msg.id) : undefined}
             mobileFooterOffset={mobileFooterOffset}
           />
         </div>
