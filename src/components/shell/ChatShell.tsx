@@ -1024,8 +1024,10 @@ export function ChatShell() {
         try {
           await navigator.share({ title: "Shared from RHEA Index", url });
           return;
-        } catch {
-          // User cancelled or API failed — fall through to modal
+        } catch (err) {
+          // User cancelled — don't open RHEA modal
+          if (err instanceof Error && err.name === "AbortError") return;
+          // Genuine API failure — fall through to RHEA modal
         }
       }
       setShareModal({
