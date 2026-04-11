@@ -1466,7 +1466,7 @@ export function ChatShell() {
             title={activeTitle}
             label={topbarLabel}
             participants={participants}
-            onOpenSidebar={() => setSidebarOpen(true)}
+            onOpenSidebar={() => setSidebarOpen((v) => !v)}
             onNewConversation={createConversationLocal}
             selectionMode={selectionMode}
             selectionCount={selectedIds.size}

@@ -107,7 +107,7 @@ export function Topbar(props: {
               </button>
 
               {moreOpen && (
-                <div className="absolute right-0 top-full z-20 mt-1.5 w-52 overflow-hidden rounded-[var(--radius-lg)] border border-[color:var(--border-0)] bg-[color:var(--bg-1)] shadow-2xl">
+                <div className="absolute right-0 top-full z-20 mt-1.5 w-52 overflow-hidden rounded-[var(--radius-lg)] border border-white/[0.07] bg-[color:var(--bg-3)] shadow-[0_8px_40px_rgba(0,0,0,0.55),0_2px_8px_rgba(0,0,0,0.35)]">
                     {props.onNewConversation && (
                       <MenuRow
                         icon={<PlusIcon />}

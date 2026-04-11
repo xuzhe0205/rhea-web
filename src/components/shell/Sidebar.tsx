@@ -136,8 +136,22 @@ export function Sidebar(props: {
         ].join(" ")}
       >
         <div className="flex h-full flex-col">
-          {/* Logo */}
-          <div className="flex h-16 items-center justify-between px-4">
+          {/* ── Mobile header ── */}
+          <div className="flex h-14 items-center justify-between px-4 md:hidden">
+            <span className="select-none text-[13px] font-medium tracking-[0.18em] text-[color:var(--text-0)]">
+              RHEA
+            </span>
+            <button
+              className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-[var(--radius-md)] text-[color:var(--text-1)] transition hover:bg-[color:var(--bg-3)] hover:text-[color:var(--text-0)]"
+              onClick={props.onClose}
+              aria-label="Close sidebar"
+            >
+              <CloseIcon />
+            </button>
+          </div>
+
+          {/* ── Desktop header ── */}
+          <div className="hidden h-16 items-center px-4 md:flex">
             <Link
               href="/"
               onClick={props.onClose}
@@ -156,15 +170,6 @@ export function Sidebar(props: {
                 </div>
               </div>
             </Link>
-
-            <button
-              className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-[var(--radius-md)] border border-[color:var(--border-0)] bg-[color:var(--bg-1)] text-[color:var(--text-0)] transition hover:bg-[color:var(--bg-3)] md:hidden"
-              onClick={props.onClose}
-              aria-label="Close sidebar"
-              title="Close sidebar"
-            >
-              <span className="text-[18px] leading-none">×</span>
-            </button>
           </div>
 
           <div className="px-4 pb-2">
@@ -387,6 +392,14 @@ function NavItem(props: {
       )}
       <span className="ml-1 truncate select-text">{props.children}</span>
     </button>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
   );
 }
 
