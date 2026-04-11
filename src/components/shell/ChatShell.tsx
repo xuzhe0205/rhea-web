@@ -168,7 +168,7 @@ export function ChatShell() {
   const router = useRouter();
   const params = useParams();
 
-  const { state } = useAuth();
+  const { state, signOut } = useAuth();
   const token = state.status === "authed" ? state.token : null;
   const me = state.status === "authed" ? state.me : null;
 
@@ -1459,6 +1459,8 @@ export function ChatShell() {
           onCreateProject={() => setCreateProjectModalOpen(true)}
           onCreateConversation={createConversationLocal}
           onTogglePin={handleTogglePin}
+          user={me}
+          onSignOut={signOut}
         />
 
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">

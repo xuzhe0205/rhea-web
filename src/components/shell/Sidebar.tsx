@@ -30,6 +30,12 @@ type Project = {
   name: string;
 };
 
+type User = {
+  id: string;
+  email: string;
+  user_name?: string;
+};
+
 function readCollapsed(key: string): boolean {
   if (typeof window === "undefined") return false;
   return localStorage.getItem(`rhea-sidebar-${key}-collapsed`) === "true";
@@ -56,6 +62,9 @@ export function Sidebar(props: {
 
   onCreateConversation: () => void;
   onTogglePin: (conversationId: string, nextPinned: boolean) => Promise<void> | void;
+
+  user?: User | null;
+  onSignOut?: () => void;
 }) {
   const navRef = useRef<HTMLElement | null>(null);
   const itemRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -277,15 +286,28 @@ export function Sidebar(props: {
           {/* Account footer */}
           <div className="border-t border-[color:var(--border-0)] p-3">
             <div className="flex items-center gap-3">
-              <div className="flex h-8 w-8 items-center justify-center rounded-full border border-[color:var(--border-0)] bg-[color:var(--bg-2)] text-xs font-medium">
-                N
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[color:var(--border-0)] bg-[color:var(--bg-2)] text-xs font-medium uppercase text-[color:var(--text-0)]">
+                {props.user?.email?.[0] ?? "?"}
               </div>
-              <div className="min-w-0">
-                <div className="truncate select-text text-sm text-[color:var(--text-0)]">Account</div>
-                <div className="truncate select-text text-xs text-[color:var(--text-2)]">
-                  Settings &amp; profile
-                </div>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm text-[color:var(--text-0)]">Account</div>
+                {props.user?.email && (
+                  <div className="truncate text-xs text-[color:var(--text-2)]">
+                    {props.user.email}
+                  </div>
+                )}
               </div>
+              {props.onSignOut && (
+                <button
+                  type="button"
+                  onClick={props.onSignOut}
+                  aria-label="Sign out"
+                  title="Sign out"
+                  className="shrink-0 flex h-7 w-7 items-center justify-center rounded-[var(--radius-md)] text-[color:var(--text-2)] transition hover:bg-[color:var(--bg-3)] hover:text-[color:var(--text-0)]"
+                >
+                  <SignOutIcon />
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -392,6 +414,16 @@ function NavItem(props: {
       )}
       <span className="ml-1 truncate select-text">{props.children}</span>
     </button>
+  );
+}
+
+function SignOutIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <polyline points="16 17 21 12 16 7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <line x1="21" y1="12" x2="9" y2="12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
   );
 }
 
