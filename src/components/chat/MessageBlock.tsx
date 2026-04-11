@@ -131,64 +131,22 @@ export function MessageBlock({
           </div>
         </div>
 
-        <div className="pointer-events-none sticky top-2 z-20 -mt-9 mb-2 flex items-center justify-end gap-1">
-          {/* Share button — hidden in selection mode */}
-          {!selectionMode && onShare && !isStreaming && (
-            <button
-              type="button"
-              aria-label="Share message"
-              title="Share message"
-              onClick={onShare}
-              className={[
-                "pointer-events-auto inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
-                "border border-[color:var(--border-0)] bg-[color:var(--bg-1)]/72",
-                "transition cursor-pointer text-[color:var(--text-2)]",
-                "hover:bg-[color:var(--bg-3)] hover:text-[color:var(--text-0)] active:scale-[0.97]",
-                "opacity-80 md:opacity-0 md:group-hover:opacity-100",
-              ].join(" ")}
-            >
-              <ShareIcon />
-            </button>
-          )}
-
-          {/* Bookmark button — hidden in selection mode */}
-          {!selectionMode && (
-            <button
-              type="button"
-              aria-label={isFavorite ? "Remove from favorites" : "Add to favorites"}
-              title={isFavorite ? "Remove from favorites" : "Add to favorites"}
-              disabled={favoriteBusy}
-              onClick={onToggleFavorite}
-              className={[
-                "pointer-events-auto inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
-                "border border-[color:var(--border-0)] bg-[color:var(--bg-1)]/72",
-                "transition cursor-pointer",
-                "hover:bg-[color:var(--bg-3)] active:scale-[0.97]",
-                "disabled:cursor-not-allowed disabled:opacity-60",
-                isFavorite
-                  ? "text-[color:var(--accent)] opacity-100"
-                  : "text-[color:var(--text-2)] opacity-80 md:opacity-0 md:group-hover:opacity-100",
-              ].join(" ")}
-            >
-              <BookmarkIcon filled={isFavorite} busy={favoriteBusy} />
-            </button>
-          )}
-        </div>
-
         <div
           className={[
-            "relative z-10 overflow-visible border transition",
+            "relative z-10 overflow-visible transition",
             isUser
               ? [
-                  "rounded-[24px] px-5 py-4",
-                  isSelected ? "border-[color:var(--accent)]/50" : "border-white/8",
-                  "bg-[linear-gradient(180deg,rgba(30,38,58,0.92),rgba(25,31,47,0.96))]",
-                  "shadow-[0_1px_0_rgba(255,255,255,0.03)_inset]",
+                  "rounded-2xl px-5 py-4",
+                  isSelected ? "ring-1 ring-[color:var(--accent)]/50" : "",
+                  "bg-[color:var(--bg-2)]",
                 ].join(" ")
               : [
                   "rounded-[var(--radius-lg)] px-5 py-4 pl-6",
-                  isError ? "border-red-400/20" : isSelected ? "border-[color:var(--accent)]/60" : "border-[color:var(--border-0)]",
-                  "bg-[color:var(--bg-2)]",
+                  isError
+                    ? "bg-red-400/[0.05]"
+                    : isSelected
+                    ? "bg-[color:var(--accent)]/[0.06]"
+                    : "bg-[color:var(--bg-2)]",
                 ].join(" "),
           ].join(" ")}
         >
@@ -254,7 +212,7 @@ export function MessageBlock({
             </div>
 
             {isUser && isOverflowing && !expanded ? (
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 rounded-b-[24px] bg-gradient-to-t from-[rgba(25,31,47,0.98)] to-transparent" />
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 rounded-b-2xl bg-gradient-to-t from-[rgba(21,24,33,0.98)] to-transparent" />
             ) : null}
           </div>
 
@@ -268,7 +226,7 @@ export function MessageBlock({
             <div className="mt-3 flex justify-end">
               <button
                 type="button"
-                className="rhea-focus inline-flex cursor-pointer items-center gap-2 rounded-[var(--radius-md)] border border-[color:var(--border-0)] bg-[color:var(--bg-0)] px-2.5 py-1.5 text-xs text-[color:var(--text-1)] transition hover:bg-[color:var(--bg-1)] hover:text-[color:var(--text-0)]"
+                className="rhea-focus inline-flex cursor-pointer items-center gap-2 rounded-[var(--radius-md)] border border-[color:var(--border-0)] bg-[color:var(--bg-2)] px-2.5 py-1.5 text-xs text-[color:var(--text-1)] transition hover:bg-[color:var(--bg-3)] hover:text-[color:var(--text-0)]"
                 onClick={() => setExpanded((v) => !v)}
                 aria-expanded={expanded}
               >
@@ -278,6 +236,48 @@ export function MessageBlock({
             </div>
           ) : null}
         </div>
+
+        {/* Action row — below the bubble, unambiguously tied to this message */}
+        {!selectionMode && !isStreaming && (
+          <div className={[
+            "mt-1.5 flex items-center gap-0.5",
+            isUser ? "justify-end" : "justify-start pl-1",
+          ].join(" ")}>
+            {onShare && (
+              <button
+                type="button"
+                aria-label="Share message"
+                title="Share message"
+                onClick={onShare}
+                className={[
+                  "inline-flex h-7 w-7 items-center justify-center rounded-lg",
+                  "text-[color:var(--text-2)] transition cursor-pointer",
+                  "hover:bg-[color:var(--bg-3)] hover:text-[color:var(--text-0)] active:scale-[0.97]",
+                ].join(" ")}
+              >
+                <ShareIcon />
+              </button>
+            )}
+            <button
+              type="button"
+              aria-label={isFavorite ? "Remove from favorites" : "Add to favorites"}
+              title={isFavorite ? "Remove from favorites" : "Add to favorites"}
+              disabled={favoriteBusy}
+              onClick={onToggleFavorite}
+              className={[
+                "inline-flex h-7 w-7 items-center justify-center rounded-lg",
+                "transition cursor-pointer",
+                "hover:bg-[color:var(--bg-3)] active:scale-[0.97]",
+                "disabled:cursor-not-allowed disabled:opacity-60",
+                isFavorite
+                  ? "text-[color:var(--accent)]"
+                  : "text-[color:var(--text-2)]",
+              ].join(" ")}
+            >
+              <BookmarkIcon filled={isFavorite} busy={favoriteBusy} />
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

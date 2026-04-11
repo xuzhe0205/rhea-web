@@ -373,7 +373,7 @@ export function AnnotatedMarkdownMessage(props: Props) {
         mobileFooterOffset={props.mobileFooterOffset}
       />
 
-      <div ref={rootRef} className="rhea-markdown text-[14px] leading-6 text-[color:var(--text-0)]">
+      <div ref={rootRef} className="rhea-markdown text-[14px] leading-6 text-[color:var(--text-1)]">
         {rendered.node}
       </div>
     </div>
@@ -442,10 +442,10 @@ function renderNode(
 
       const className =
         node.depth === 1
-          ? "mt-6 mb-3 text-2xl font-semibold"
+          ? "mt-6 mb-3 text-2xl font-semibold text-[color:var(--text-0)]"
           : node.depth === 2
-            ? "mt-5 mb-3 text-xl font-semibold"
-            : "mt-4 mb-2 text-lg font-semibold";
+            ? "mt-5 mb-3 text-xl font-semibold text-[color:var(--text-0)]"
+            : "mt-4 mb-2 text-lg font-semibold text-[color:var(--text-0)]";
 
       return (
         <Tag className={className}>
@@ -904,7 +904,7 @@ function renderSegment(
   const clickable = isCommented && !!segment.topCommentThreadId;
 
   const className = [
-    segment.marks.bold ? "font-semibold" : "",
+    segment.marks.bold ? "font-bold text-[color:var(--text-0)]" : "",
     segment.marks.italic ? "italic" : "",
   ]
     .filter(Boolean)
