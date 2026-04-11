@@ -3,19 +3,35 @@
 import { useState } from "react";
 
 export function MarketingFooter() {
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
 
   return (
     <footer className="sticky bottom-0 z-10 border-t border-[color:var(--border-0)] bg-[color:var(--bg-0)]/95 backdrop-blur-sm">
-      {/* Toggle handle — full-width chevron strip */}
+      {/* Toggle handle */}
+      <style>{`
+        @keyframes rhea-breathe {
+          0%, 100% { opacity: 0.35; }
+          50%       { opacity: 1;    }
+        }
+        .rhea-footer-prompt {
+          animation: rhea-breathe 3s ease-in-out infinite;
+        }
+      `}</style>
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
         aria-expanded={expanded}
-        aria-label={expanded ? "Collapse RHEA info" : "Learn about RHEA"}
-        className="flex w-full items-center justify-center py-2 text-[color:var(--text-2)] transition hover:text-[color:var(--text-1)]"
+        aria-label={expanded ? "Collapse" : "What is RHEA?"}
+        className="flex w-full flex-col items-center justify-center py-2.5 md:py-4 text-[color:var(--text-2)] transition hover:text-[color:var(--text-1)]"
       >
-        <WideChevron expanded={expanded} />
+        {expanded ? (
+          <WideChevron expanded={expanded} />
+        ) : (
+          <div className="rhea-footer-prompt flex flex-col items-center gap-1.5">
+            <WideChevron expanded={expanded} />
+            <span className="text-[12px]">What is RHEA?</span>
+          </div>
+        )}
       </button>
 
       {/* Expandable panel */}
