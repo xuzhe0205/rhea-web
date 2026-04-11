@@ -31,6 +31,9 @@ export function MessageBlock({
   onSelectionToolbarVisibleChange,
   onShare,
   mobileFooterOffset,
+  selectionMode,
+  isSelected,
+  onToggleSelect,
 }: {
   msg: Msg;
   annotations: AnnotationDTO[];
@@ -48,6 +51,9 @@ export function MessageBlock({
   onSelectionToolbarVisibleChange?: (visible: boolean) => void;
   onShare?: () => void;
   mobileFooterOffset?: number;
+  selectionMode?: boolean;
+  isSelected?: boolean;
+  onToggleSelect?: () => void;
 }) {
   const isUser = msg.role === "user";
   const isStreaming = msg.status === "streaming";
@@ -76,13 +82,31 @@ export function MessageBlock({
   }, [isUser, msg.content, annotations, commentThreads]);
 
   return (
-    <div className={`group flex ${isUser ? "justify-end" : "justify-start"}`}>
+    <div
+      className={[
+        "group flex",
+        selectionMode
+          ? "items-center cursor-pointer select-none"
+          : isUser ? "justify-end" : "justify-start",
+      ].join(" ")}
+      onClick={selectionMode ? onToggleSelect : undefined}
+    >
+      {/* Selection checkbox */}
+      {selectionMode && (
+        <div
+          className="mr-3 flex-shrink-0 self-center"
+          onClick={(e) => { e.stopPropagation(); onToggleSelect?.(); }}
+        >
+          <SelectionCircle selected={!!isSelected} />
+        </div>
+      )}
       <div
-        className={
+        className={[
           isUser
-            ? "ml-auto w-fit min-w-[180px] max-w-[88%] md:min-w-[220px] md:max-w-[620px]"
-            : "w-full max-w-[96%] md:max-w-[820px]"
-        }
+            ? "w-fit min-w-[180px] max-w-[88%] md:min-w-[220px] md:max-w-[620px]"
+            : "w-full max-w-[96%] md:max-w-[820px]",
+          selectionMode && isUser ? "ml-auto" : "",
+        ].join(" ")}
       >
         <div
           className={[
@@ -108,8 +132,8 @@ export function MessageBlock({
         </div>
 
         <div className="pointer-events-none sticky top-2 z-20 -mt-9 mb-2 flex items-center justify-end gap-1">
-          {/* Share button */}
-          {onShare && !isStreaming && (
+          {/* Share button — hidden in selection mode */}
+          {!selectionMode && onShare && !isStreaming && (
             <button
               type="button"
               aria-label="Share message"
@@ -127,26 +151,28 @@ export function MessageBlock({
             </button>
           )}
 
-          {/* Bookmark button */}
-          <button
-            type="button"
-            aria-label={isFavorite ? "Remove from favorites" : "Add to favorites"}
-            title={isFavorite ? "Remove from favorites" : "Add to favorites"}
-            disabled={favoriteBusy}
-            onClick={onToggleFavorite}
-            className={[
-              "pointer-events-auto inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
-              "border border-[color:var(--border-0)] bg-[color:var(--bg-1)]/72",
-              "transition cursor-pointer",
-              "hover:bg-[color:var(--bg-3)] active:scale-[0.97]",
-              "disabled:cursor-not-allowed disabled:opacity-60",
-              isFavorite
-                ? "text-[color:var(--accent)] opacity-100"
-                : "text-[color:var(--text-2)] opacity-80 md:opacity-0 md:group-hover:opacity-100",
-            ].join(" ")}
-          >
-            <BookmarkIcon filled={isFavorite} busy={favoriteBusy} />
-          </button>
+          {/* Bookmark button — hidden in selection mode */}
+          {!selectionMode && (
+            <button
+              type="button"
+              aria-label={isFavorite ? "Remove from favorites" : "Add to favorites"}
+              title={isFavorite ? "Remove from favorites" : "Add to favorites"}
+              disabled={favoriteBusy}
+              onClick={onToggleFavorite}
+              className={[
+                "pointer-events-auto inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
+                "border border-[color:var(--border-0)] bg-[color:var(--bg-1)]/72",
+                "transition cursor-pointer",
+                "hover:bg-[color:var(--bg-3)] active:scale-[0.97]",
+                "disabled:cursor-not-allowed disabled:opacity-60",
+                isFavorite
+                  ? "text-[color:var(--accent)] opacity-100"
+                  : "text-[color:var(--text-2)] opacity-80 md:opacity-0 md:group-hover:opacity-100",
+              ].join(" ")}
+            >
+              <BookmarkIcon filled={isFavorite} busy={favoriteBusy} />
+            </button>
+          )}
         </div>
 
         <div
@@ -155,17 +181,25 @@ export function MessageBlock({
             isUser
               ? [
                   "rounded-[24px] px-5 py-4",
-                  "border-white/8",
+                  isSelected ? "border-[color:var(--accent)]/50" : "border-white/8",
                   "bg-[linear-gradient(180deg,rgba(30,38,58,0.92),rgba(25,31,47,0.96))]",
                   "shadow-[0_1px_0_rgba(255,255,255,0.03)_inset]",
                 ].join(" ")
               : [
                   "rounded-[var(--radius-lg)] px-5 py-4 pl-6",
-                  isError ? "border-red-400/20" : "border-[color:var(--border-0)]",
+                  isError ? "border-red-400/20" : isSelected ? "border-[color:var(--accent)]/60" : "border-[color:var(--border-0)]",
                   "bg-[color:var(--bg-2)]",
                 ].join(" "),
           ].join(" ")}
         >
+          {/* Selection overlay — captures clicks inside the bubble in selection mode */}
+          {selectionMode && (
+            <div
+              className="absolute inset-0 z-20 rounded-[inherit]"
+              aria-hidden="true"
+              onClick={(e) => { e.stopPropagation(); onToggleSelect?.(); }}
+            />
+          )}
           {!isUser ? (
             <span
               className="absolute bottom-4 left-0 top-4 w-[3px] rounded-full bg-[color:var(--accent)]"
@@ -275,6 +309,31 @@ function ShareIcon() {
       <circle cx="2.5" cy="7" r="1.5" stroke="currentColor" strokeWidth="1.2" />
       <path d="M4 7l5.5-3.5M4 7l5.5 3.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
     </svg>
+  );
+}
+
+function SelectionCircle({ selected }: { selected: boolean }) {
+  return (
+    <div
+      className={[
+        "h-5 w-5 rounded-full border-2 flex items-center justify-center transition-all duration-150",
+        selected
+          ? "border-[color:var(--accent)] bg-[color:var(--accent)]"
+          : "border-[color:var(--border-0)] bg-transparent",
+      ].join(" ")}
+    >
+      {selected && (
+        <svg width="10" height="8" viewBox="0 0 10 8" fill="none" aria-hidden="true">
+          <path
+            d="M1 4l3 3 5-6"
+            stroke="white"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      )}
+    </div>
   );
 }
 

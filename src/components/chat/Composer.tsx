@@ -24,6 +24,7 @@ export function Composer({
   const [activeIdx, setActiveIdx] = useState(0);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
 
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -292,6 +293,8 @@ export function Composer({
             onChange={(e) => handleChange(e.target.value)}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => setIsFocused(false)}
           />
 
           {/* Send button */}
@@ -330,8 +333,13 @@ export function Composer({
         </div>
       )}
 
-      {/* Footer hint */}
-      <div className="mt-2 flex items-center justify-between text-xs text-[color:var(--text-2)]">
+      {/* Footer hint — hidden on mobile when idle (no focus, no images, not streaming) */}
+      <div
+        className={[
+          "mt-2 items-center justify-between text-xs text-[color:var(--text-2)]",
+          isFocused || hasImages || disabled ? "flex" : "hidden md:flex",
+        ].join(" ")}
+      >
         <span>
           {disabled
             ? "Streaming response…"

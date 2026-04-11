@@ -45,6 +45,7 @@ import {
 } from "@/components/chat/richtext/highlight-optimistic";
 import { FavoriteLabelPopup } from "@/components/shell/FavoriteLabelPopup";
 import { ShareModal } from "@/components/share/ShareModal";
+import { SelectionBar } from "@/components/share/SelectionBar";
 import { createShareLink } from "@/lib/share";
 
 type Participant = { id: string; name: string };
@@ -203,6 +204,9 @@ export function ChatShell() {
   const [ragStatsByConversation, setRagStatsByConversation] = useState<Record<string, RagStats>>({});
 
   const [shareModal, setShareModal] = useState<{ url: string; preview: string } | null>(null);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [sharingSelected, setSharingSelected] = useState(false);
 
   const [annotationsByConversation, setAnnotationsByConversation] = useState<
     Record<string, Record<string, AnnotationDTO[]>>
@@ -1039,6 +1043,53 @@ export function ChatShell() {
     }
   }
 
+  function enterSelectionMode() {
+    setSelectionMode(true);
+    setSelectedIds(new Set());
+  }
+
+  function exitSelectionMode() {
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+  }
+
+  function toggleSelectMessage(messageId: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(messageId)) next.delete(messageId);
+      else next.add(messageId);
+      return next;
+    });
+  }
+
+  async function handleShareSelected() {
+    if (!token || selectedIds.size === 0) return;
+    setSharingSelected(true);
+    try {
+      const ids = Array.from(selectedIds);
+      const { url } = await createShareLink(token, ids);
+      exitSelectionMode();
+      const msgs = messagesByConversation[activeConversationId ?? ""] ?? [];
+      const preview = msgs.find((m) => selectedIds.has(m.id))?.content ?? "";
+      const isTouchPrimary =
+        typeof window !== "undefined" &&
+        window.matchMedia("(hover: none) and (pointer: coarse)").matches;
+      if (isTouchPrimary && typeof navigator !== "undefined" && navigator.share) {
+        try {
+          await navigator.share({ title: "Shared from RHEA Index", url });
+          return;
+        } catch (err) {
+          if (err instanceof Error && err.name === "AbortError") return;
+        }
+      }
+      setShareModal({ url, preview });
+    } catch (err) {
+      console.error("Failed to share selected messages:", err);
+    } finally {
+      setSharingSelected(false);
+    }
+  }
+
   async function onSend(text: string, imageUrls?: string[], imageKeys?: string[]): Promise<boolean> {
     const trimmed = text.trim();
     const hasContent = trimmed.length > 0 || (imageUrls && imageUrls.length > 0);
@@ -1417,6 +1468,10 @@ export function ChatShell() {
             participants={participants}
             onOpenSidebar={() => setSidebarOpen(true)}
             onNewConversation={createConversationLocal}
+            selectionMode={selectionMode}
+            selectionCount={selectedIds.size}
+            onEnterSelectionMode={activeMessages.length > 0 ? enterSelectionMode : undefined}
+            onExitSelectionMode={exitSelectionMode}
           />
 
           {activeProjectId && !isProjectThread ? (
@@ -1554,6 +1609,9 @@ export function ChatShell() {
                         onSelectionToolbarVisibleChange={setMobileSelectionToolbarVisible}
                         onShare={handleShare}
                         mobileFooterOffset={footerHeight}
+                        selectionMode={selectionMode}
+                        selectedIds={selectedIds}
+                        onToggleSelect={toggleSelectMessage}
                       />
                       <div className="h-6" />
                     </>
@@ -1561,9 +1619,26 @@ export function ChatShell() {
                 </div>
               </div>
 
+              {/* Selection bar — floats in the space the composer vacates */}
+              {selectionMode && (
+                <div className="px-4 py-3 md:px-6">
+                  <div className="mx-auto w-full max-w-3xl">
+                    <SelectionBar
+                      count={selectedIds.size}
+                      onShare={handleShareSelected}
+                      onCancel={exitSelectionMode}
+                      sharing={sharingSelected}
+                    />
+                  </div>
+                </div>
+              )}
+
               <div
                 ref={footerRef}
-                className="border-t border-[color:var(--border-0)] bg-[color:var(--bg-0)] px-4 py-3 md:px-6"
+                className={[
+                  "border-t border-[color:var(--border-0)] bg-[color:var(--bg-0)] px-4 py-2 md:py-3 md:px-6",
+                  selectionMode ? "hidden" : "",
+                ].join(" ")}
               >
                 <div className="mx-auto w-full max-w-3xl">
                   {(activeSelectedModel || activeConversationId) && (

@@ -79,7 +79,7 @@ function ReadOnlyMessageBlock({ msg }: { msg: SharedMessage }) {
       <div className="flex justify-end">
         <div className="ml-auto w-fit min-w-[180px] max-w-[88%] md:min-w-[220px] md:max-w-[620px]">
           <div className="mb-2 text-right text-[11px] font-medium uppercase tracking-[0.14em] text-[color:var(--text-2)]">
-            You
+            User
           </div>
           <div className="rounded-[24px] border border-white/8 bg-[linear-gradient(180deg,rgba(30,38,58,0.92),rgba(25,31,47,0.96))] px-5 py-4 shadow-[0_1px_0_rgba(255,255,255,0.03)_inset]">
             {imageUrls.length > 0 && (
@@ -126,7 +126,7 @@ function ReadOnlyMessageBlock({ msg }: { msg: SharedMessage }) {
 
 function TopBar() {
   return (
-    <header className="sticky top-0 z-20 border-b border-[color:var(--border-0)] bg-[color:var(--bg-0)]/90 backdrop-blur-sm">
+    <header className="sticky top-0 z-30 border-b border-[color:var(--border-0)] bg-[color:var(--bg-0)]/90 backdrop-blur-sm">
       <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3 md:px-6">
         {/* Logo */}
         <a

@@ -6,7 +6,7 @@ export function MarketingFooter() {
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <footer className="sticky bottom-0 z-10 border-t border-[color:var(--border-0)] bg-[color:var(--bg-0)]/95 backdrop-blur-sm">
+    <footer className="sticky bottom-0 z-30 border-t border-[color:var(--border-0)] bg-[color:var(--bg-0)]/95 backdrop-blur-sm">
       {/* Toggle handle */}
       <style>{`
         @keyframes rhea-breathe {

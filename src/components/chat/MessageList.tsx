@@ -27,6 +27,9 @@ export function MessageList({
   onSelectionToolbarVisibleChange,
   onShare,
   mobileFooterOffset,
+  selectionMode,
+  selectedIds,
+  onToggleSelect,
 }: {
   messages: Msg[];
   annotationsByMessageId: Record<string, AnnotationDTO[]>;
@@ -47,6 +50,9 @@ export function MessageList({
   onSelectionToolbarVisibleChange?: (visible: boolean) => void;
   onShare?: (messageId: string) => void;
   mobileFooterOffset?: number;
+  selectionMode?: boolean;
+  selectedIds?: Set<string>;
+  onToggleSelect?: (messageId: string) => void;
 }) {
   return (
     <div className="space-y-4">
@@ -66,8 +72,11 @@ export function MessageList({
             }
             onOpenCommentThread={onOpenCommentThread}
             onSelectionToolbarVisibleChange={onSelectionToolbarVisibleChange}
-            onShare={onShare ? () => onShare(msg.id) : undefined}
+            onShare={!selectionMode && onShare ? () => onShare(msg.id) : undefined}
             mobileFooterOffset={mobileFooterOffset}
+            selectionMode={selectionMode}
+            isSelected={selectedIds?.has(msg.id)}
+            onToggleSelect={onToggleSelect ? () => onToggleSelect(msg.id) : undefined}
           />
         </div>
       ))}
