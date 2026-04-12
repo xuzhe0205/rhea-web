@@ -1,8 +1,10 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ImageStrip } from "@/components/chat/ImageStrip";
 import { useImageAttach, MAX_IMAGES } from "@/hooks/useImageAttach";
+import { useVoiceRecorder } from "@/hooks/useVoiceRecorder";
+import { transcribeAudio } from "@/lib/transcribe";
 
 type Participant = { id: string; name: string };
 
@@ -25,10 +27,34 @@ export function Composer({
   const [validationError, setValidationError] = useState<string | null>(null);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
+  const [expandOpen, setExpandOpen] = useState(false);
+  const [expandValue, setExpandValue] = useState("");
+  const [isMobile, setIsMobile] = useState(false);
 
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const holdActiveRef = useRef(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(hover: none) and (pointer: coarse)");
+    const sync = () => setIsMobile(mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  }, []);
+
+  const handleTranscribed = useCallback(async (blob: Blob) => {
+    const transcript = await transcribeAudio(blob, token);
+    if (!transcript) return;
+    setValue((prev) => {
+      const joined = prev ? `${prev} ${transcript}` : transcript;
+      return joined;
+    });
+    inputRef.current?.focus();
+  }, [token]);
+
+  const { recorderState, elapsed, startRecording, stopRecording } = useVoiceRecorder(handleTranscribed);
 
   const { images, readyUrls, readyKeys, addFiles, removeImage, clearAll } = useImageAttach(token);
 
@@ -249,66 +275,125 @@ export function Composer({
           <ImageStrip images={images} onRemove={removeImage} />
         )}
 
-        {/* Input row */}
-        <div className="flex items-end gap-1.5 p-2">
-          {/* Attach button */}
-          <div className="relative shrink-0">
+        {/* Input row — changes entirely when recording */}
+        {recorderState === "recording" ? (
+          <div className="flex items-center gap-3 px-3 py-2.5">
+            {/* Pulsing indicator + Listening label + elapsed */}
+            <span className="relative flex h-2.5 w-2.5 shrink-0">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-60" />
+              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-red-400" />
+            </span>
+            <span className="text-sm font-medium text-red-400">Listening</span>
+            <span className="font-mono text-sm text-red-400">{formatElapsed(elapsed)}</span>
+            <div className="flex-1" />
+            {/* Stop button */}
             <button
               type="button"
-              onClick={openFilePicker}
-              disabled={disabled || atLimit}
-              aria-label="Attach images"
-              title={atLimit ? "Image limit reached (10)" : "Attach images"}
-              className={[
-                "rhea-focus flex h-9 w-9 items-center justify-center rounded-[var(--radius-md)]",
-                "text-[color:var(--text-2)] transition",
-                disabled || atLimit
-                  ? "cursor-not-allowed opacity-35"
-                  : "hover:bg-[color:var(--bg-3)] hover:text-[color:var(--text-1)]",
-              ].join(" ")}
+              aria-label="Stop recording"
+              title="Stop recording"
+              className="rhea-focus inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-red-500/15 text-red-400 transition hover:bg-red-500/25"
+              onClick={!isMobile ? () => void stopRecording() : undefined}
+              onTouchEnd={isMobile ? (e) => {
+                e.preventDefault();
+                if (holdActiveRef.current) {
+                  holdActiveRef.current = false;
+                  void stopRecording();
+                }
+              } : undefined}
+              onTouchCancel={isMobile ? () => {
+                holdActiveRef.current = false;
+                void stopRecording();
+              } : undefined}
             >
-              <ImageIcon />
+              <StopIcon />
             </button>
-            {/* Image count badge */}
-            {activeImageCount > 0 && (
-              <span className="pointer-events-none absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[color:var(--accent)] px-0.5 font-mono text-[9px] leading-none text-white">
-                {activeImageCount}
-              </span>
-            )}
           </div>
+        ) : recorderState === "transcribing" ? (
+          <div className="flex items-center gap-3 px-3 py-2.5">
+            <span className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-[color:var(--accent)] border-t-transparent" />
+            <span className="text-sm text-[color:var(--text-1)]">Transcribing your message…</span>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5 p-2">
+            {/* Attach button */}
+            <div className="relative shrink-0">
+              <button
+                type="button"
+                onClick={openFilePicker}
+                disabled={disabled || atLimit}
+                aria-label="Attach images"
+                title={atLimit ? "Image limit reached (10)" : "Attach images"}
+                className={[
+                  "rhea-focus flex h-9 w-9 items-center justify-center rounded-[var(--radius-md)]",
+                  "text-[color:var(--text-2)] transition",
+                  disabled || atLimit
+                    ? "cursor-not-allowed opacity-35"
+                    : "hover:bg-[color:var(--bg-3)] hover:text-[color:var(--text-1)]",
+                ].join(" ")}
+              >
+                <ImageIcon />
+              </button>
+              {activeImageCount > 0 && (
+                <span className="pointer-events-none absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[color:var(--accent)] px-0.5 font-mono text-[9px] leading-none text-white">
+                  {activeImageCount}
+                </span>
+              )}
+            </div>
 
-          {/* Textarea */}
-          <textarea
-            ref={inputRef}
-            disabled={disabled}
-            className="rhea-focus min-h-[44px] max-h-[160px] flex-1 resize-none rounded-[var(--radius-md)] border border-transparent bg-transparent px-2 py-2.5 text-[16px] leading-6 text-[color:var(--text-0)] placeholder:text-[color:var(--text-2)] disabled:cursor-not-allowed disabled:opacity-60"
-            placeholder={
-              isDraggingOver
-                ? "Drop images here…"
-                : disabled
-                ? "RHEA is responding…"
-                : "Ask RHEA… (type @ to mention)"
-            }
-            value={value}
-            onChange={(e) => handleChange(e.target.value)}
-            onKeyDown={handleKeyDown}
-            onPaste={handlePaste}
-            onFocus={() => setIsFocused(true)}
-            onBlur={() => setIsFocused(false)}
-          />
+            {/* Textarea */}
+            <textarea
+              ref={inputRef}
+              disabled={disabled}
+              className="rhea-focus min-h-[44px] max-h-[160px] flex-1 resize-none rounded-[var(--radius-md)] border border-transparent bg-transparent px-2 py-2.5 text-[16px] leading-6 text-[color:var(--text-0)] placeholder:text-[color:var(--text-2)] disabled:cursor-not-allowed disabled:opacity-60"
+              placeholder={
+                isDraggingOver
+                  ? "Drop images here…"
+                  : disabled
+                  ? "RHEA is responding…"
+                  : "Ask RHEA… (type @ to mention)"
+              }
+              value={value}
+              onChange={(e) => handleChange(e.target.value)}
+              onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
+              onFocus={() => setIsFocused(true)}
+              onBlur={() => setIsFocused(false)}
+            />
 
-          {/* Send button */}
-          <button
-            className="rhea-focus inline-flex h-9 w-9 items-center justify-center rounded-[var(--radius-md)] bg-[color:var(--accent)] text-white transition hover:opacity-90 active:opacity-80 disabled:cursor-not-allowed disabled:opacity-35 shrink-0"
-            type="button"
-            onClick={() => void submit()}
-            disabled={!canSend}
-            aria-label="Send"
-            title="Send"
-          >
-            <SendIcon />
-          </button>
-        </div>
+            {/* Mic button */}
+            <button
+              type="button"
+              aria-label="Voice input"
+              title="Voice input"
+              disabled={disabled}
+              className={[
+                "rhea-focus inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-md)] transition",
+                "text-[color:var(--text-2)] hover:bg-[color:var(--bg-3)] hover:text-[color:var(--text-1)]",
+                disabled ? "cursor-not-allowed opacity-35" : "",
+              ].join(" ")}
+              onClick={!isMobile ? () => void startRecording() : undefined}
+              onTouchStart={isMobile ? (e) => {
+                e.preventDefault();
+                holdActiveRef.current = true;
+                void startRecording();
+              } : undefined}
+            >
+              <MicIcon />
+            </button>
+
+            {/* Send button */}
+            <button
+              className="rhea-focus inline-flex h-9 w-9 items-center justify-center rounded-[var(--radius-md)] bg-[color:var(--accent)] text-white transition hover:opacity-90 active:opacity-80 disabled:cursor-not-allowed disabled:opacity-35 shrink-0"
+              type="button"
+              onClick={() => void submit()}
+              disabled={!canSend}
+              aria-label="Send"
+              title="Send"
+            >
+              <SendIcon />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Validation error banner */}
@@ -333,31 +418,152 @@ export function Composer({
         </div>
       )}
 
-      {/* Footer hint — hidden on mobile when idle (no focus, no images, not streaming) */}
-      <div
-        className={[
-          "mt-2 items-center justify-between text-xs text-[color:var(--text-2)]",
-          isFocused || hasImages || disabled ? "flex" : "hidden md:flex",
-        ].join(" ")}
-      >
-        <span>
-          {disabled
-            ? "Streaming response…"
-            : hasImages
-            ? `${activeImageCount}/10 images · Enter to send`
-            : "Enter to send · Shift+Enter for newline · ⌘V to paste image"}
-        </span>
-        <span className="hidden sm:inline">RHEA Index</span>
-      </div>
+      {/* Recording progress */}
+      {recorderState === "recording" && (
+        <div className="mt-2 space-y-1.5">
+          <div className="h-[3px] w-full overflow-hidden rounded-full bg-[color:var(--bg-3)]">
+            <div
+              className={[
+                "h-full rounded-full transition-[width] duration-1000 ease-linear",
+                elapsed >= 50 ? "bg-red-400" : "bg-[color:var(--accent)]",
+              ].join(" ")}
+              style={{ width: `${Math.min((elapsed / 60) * 100, 100)}%` }}
+            />
+          </div>
+          <p className={[
+            "text-xs",
+            elapsed >= 50 ? "text-red-400" : "text-[color:var(--text-2)]",
+          ].join(" ")}>
+            {60 - elapsed > 0
+              ? `${60 - elapsed} second${60 - elapsed === 1 ? "" : "s"} remaining`
+              : "Stopping…"}
+          </p>
+        </div>
+      )}
+
+      {/* Expand button — shown when textarea value is long */}
+      {recorderState === "idle" && value.length > 200 && (
+        <div className="mt-1.5 flex justify-end">
+          <button
+            type="button"
+            onClick={() => { setExpandValue(value); setExpandOpen(true); }}
+            className="inline-flex items-center gap-1 text-[11px] text-[color:var(--text-2)] transition hover:text-[color:var(--text-0)]"
+          >
+            <ExpandIcon />
+            Expand to edit
+          </button>
+        </div>
+      )}
+
+      {/* Footer hint — hidden on mobile when idle */}
+      {recorderState === "idle" && (
+        <div
+          className={[
+            "mt-2 items-center justify-between text-xs text-[color:var(--text-2)]",
+            isFocused || hasImages || disabled ? "flex" : "hidden",
+          ].join(" ")}
+        >
+          <span>
+            {disabled
+              ? "Streaming response…"
+              : hasImages
+              ? `${activeImageCount}/10 images · Enter to send`
+              : "Enter to send · Shift+Enter for newline · ⌘V to paste image"}
+          </span>
+          <span className="hidden sm:inline">RHEA Index</span>
+        </div>
+      )}
+
+      {/* Expand modal */}
+      {expandOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center p-4 md:items-center"
+          onClick={() => setExpandOpen(false)}
+        >
+          <div
+            className="w-full max-w-lg rounded-[var(--radius-lg)] border border-white/[0.07] bg-[color:var(--bg-3)] shadow-[0_8px_40px_rgba(0,0,0,0.55)] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-[color:var(--border-0)] px-4 py-3">
+              <span className="text-sm font-medium text-[color:var(--text-0)]">Edit message</span>
+              <button
+                type="button"
+                onClick={() => setExpandOpen(false)}
+                className="text-[color:var(--text-2)] hover:text-[color:var(--text-0)] transition"
+                aria-label="Close"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                </svg>
+              </button>
+            </div>
+            <textarea
+              className="min-h-[200px] max-h-[60vh] flex-1 resize-none bg-transparent px-4 py-3 text-[15px] leading-6 text-[color:var(--text-0)] placeholder:text-[color:var(--text-2)] focus:outline-none"
+              value={expandValue}
+              onChange={(e) => setExpandValue(e.target.value)}
+              autoFocus
+            />
+            <div className="flex justify-end gap-2 border-t border-[color:var(--border-0)] px-4 py-3">
+              <button
+                type="button"
+                onClick={() => setExpandOpen(false)}
+                className="px-4 py-2 text-sm text-[color:var(--text-2)] transition hover:text-[color:var(--text-0)]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => { setValue(expandValue); setExpandOpen(false); inputRef.current?.focus(); }}
+                className="rounded-[var(--radius-md)] bg-[color:var(--accent)] px-4 py-2 text-sm font-medium text-white transition hover:opacity-90"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 // ─── Icons ────────────────────────────────────────────────────────────────────
 
+function formatElapsed(s: number) {
+  const m = Math.floor(s / 60).toString().padStart(1, "0");
+  const sec = (s % 60).toString().padStart(2, "0");
+  return `${m}:${sec}`;
+}
+
+function MicIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <rect x="9" y="2" width="6" height="11" rx="3" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M5 10a7 7 0 0 0 14 0" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <line x1="12" y1="19" x2="12" y2="22" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <line x1="9" y1="22" x2="15" y2="22" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function StopIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <rect x="4" y="4" width="16" height="16" rx="2" />
+    </svg>
+  );
+}
+
+function ExpandIcon() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 function ImageIcon() {
   return (
-    <svg width="17" height="17" viewBox="0 0 17 17" fill="none" aria-hidden="true">
+    <svg width="18" height="18" viewBox="0 0 17 17" fill="none" aria-hidden="true">
       <rect x="1.5" y="3" width="14" height="11" rx="2" stroke="currentColor" strokeWidth="1.3" />
       <circle cx="6" cy="7" r="1.2" fill="currentColor" opacity="0.7" />
       <path
@@ -373,7 +579,7 @@ function ImageIcon() {
 
 function SendIcon() {
   return (
-    <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true">
+    <svg width="18" height="18" viewBox="0 0 15 15" fill="none" aria-hidden="true">
       <path
         d="M13 7.5L2 2l2.5 5.5L2 13l11-5.5z"
         fill="currentColor"
