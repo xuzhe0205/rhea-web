@@ -30,6 +30,7 @@ export function Composer({
   const [expandOpen, setExpandOpen] = useState(false);
   const [expandValue, setExpandValue] = useState("");
   const [isMobile, setIsMobile] = useState(false);
+  const [micPermission, setMicPermission] = useState<"granted" | "prompt" | "denied" | "unknown">("unknown");
 
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -43,6 +44,17 @@ export function Composer({
     sync();
     mq.addEventListener("change", sync);
     return () => mq.removeEventListener("change", sync);
+  }, []);
+
+  // Track microphone permission state so we can gate hold-to-talk behind it
+  useEffect(() => {
+    if (!navigator.permissions) return;
+    navigator.permissions.query({ name: "microphone" as PermissionName }).then((status) => {
+      setMicPermission(status.state as "granted" | "prompt" | "denied");
+      status.addEventListener("change", () => {
+        setMicPermission(status.state as "granted" | "prompt" | "denied");
+      });
+    }).catch(() => {});
   }, []);
 
   const handleTranscribed = useCallback(async (blob: Blob) => {
@@ -380,6 +392,21 @@ export function Composer({
                 style={isMobile ? { WebkitUserSelect: "none", userSelect: "none" } : undefined}
                 onClick={!isMobile ? () => void startRecording() : undefined}
                 onTouchStart={isMobile && !disabled ? (e) => {
+                  if (micPermission !== "granted") {
+                    // First touch: just warm up the permission — don't preventDefault
+                    // so the browser can show the native dialog cleanly.
+                    // Once the user taps Allow, micPermission flips to "granted"
+                    // and the next hold will work correctly.
+                    navigator.mediaDevices.getUserMedia({ audio: true })
+                      .then((stream) => {
+                        stream.getTracks().forEach((t) => t.stop());
+                        setMicPermission("granted");
+                      })
+                      .catch(() => {});
+                    return;
+                  }
+
+                  // Permission already granted — own the full gesture
                   e.preventDefault();
                   holdActiveRef.current = true;
                   void startRecording();
