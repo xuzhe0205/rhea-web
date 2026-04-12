@@ -87,20 +87,6 @@ export function Composer({
     setInCancelZone(inZone);
   }
 
-  function handleOverlayRelease() {
-    moveCleanupRef.current?.();
-    moveCleanupRef.current = null;
-    holdActiveRef.current = false;
-    const shouldCancel = inCancelZoneRef.current;
-    inCancelZoneRef.current = false;
-    setInCancelZone(false);
-    if (shouldCancel) {
-      cancelRecording();
-    } else {
-      void stopRecording();
-    }
-  }
-
   function handleOverlayCancel() {
     moveCleanupRef.current?.();
     moveCleanupRef.current = null;
@@ -591,8 +577,28 @@ export function Composer({
         <div
           className="fixed inset-0 z-[200] flex flex-col bg-black/55 backdrop-blur-sm"
           style={{ touchAction: "none" }}
-          onTouchEnd={handleOverlayRelease}
-          onPointerUp={handleOverlayRelease}
+          onTouchEnd={(e) => {
+            // Read where the finger LIFTED from changedTouches — this is reliable
+            // regardless of whether touchmove tracking worked. No dependency on refs
+            // updated by touchmove events that iOS may not have delivered.
+            const y = e.changedTouches[0]?.clientY ?? 0;
+            const el = cancelZoneRef.current;
+            const threshold = el
+              ? el.getBoundingClientRect().top - 15
+              : window.innerHeight * 0.72;
+
+            moveCleanupRef.current?.();
+            moveCleanupRef.current = null;
+            holdActiveRef.current = false;
+            inCancelZoneRef.current = false;
+            setInCancelZone(false);
+
+            if (y >= threshold) {
+              cancelRecording();
+            } else {
+              void stopRecording();
+            }
+          }}
           onTouchCancel={handleOverlayCancel}
         >
           {/* ── Recording zone (top 72%) ── */}
