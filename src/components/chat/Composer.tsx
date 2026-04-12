@@ -344,19 +344,30 @@ export function Composer({
             <span className="text-sm font-medium text-red-400">Listening</span>
             <span className="font-mono text-sm text-red-400">{formatElapsed(elapsed)}</span>
             <div className="flex-1" />
-            {/* Desktop: explicit stop button. Mobile: release anywhere stops (window listener). */}
             {isMobile ? (
               <span className="text-xs text-red-400/70">Release</span>
             ) : (
-              <button
-                type="button"
-                aria-label="Stop recording"
-                title="Stop recording"
-                className="rhea-focus inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-red-500/15 text-red-400 transition hover:bg-red-500/25"
-                onClick={() => void stopRecording()}
-              >
-                <StopIcon />
-              </button>
+              <div className="flex items-center gap-2 shrink-0">
+                {/* Cancel — discard recording, no transcription */}
+                <button
+                  type="button"
+                  onClick={() => cancelRecording()}
+                  title="Cancel — recording won't be transcribed"
+                  className="rhea-focus inline-flex h-9 items-center rounded-[var(--radius-md)] px-3 text-xs text-[color:var(--text-1)] transition hover:bg-[color:var(--bg-3)] hover:text-[color:var(--text-0)]"
+                >
+                  Cancel
+                </button>
+                {/* Stop — end recording and transcribe */}
+                <button
+                  type="button"
+                  aria-label="Stop and transcribe"
+                  title="Stop — converts your speech to text"
+                  className="rhea-focus inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-red-500/15 text-red-400 transition hover:bg-red-500/25"
+                  onClick={() => void stopRecording()}
+                >
+                  <StopIcon />
+                </button>
+              </div>
             )}
           </div>
         ) : recorderState === "transcribing" ? (
