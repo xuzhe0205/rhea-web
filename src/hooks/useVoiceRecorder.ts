@@ -51,6 +51,14 @@ export function useVoiceRecorder(onBlob: (blob: Blob) => Promise<void>) {
   const startRecording = useCallback(async () => {
     if (recorderState !== "idle") return;
 
+    // WeChat's built-in browser (X5/TBS) blocks getUserMedia entirely.
+    // Prompt the user to open in their system browser instead.
+    const isWeChatBrowser = /MicroMessenger/i.test(navigator.userAgent);
+    if (isWeChatBrowser) {
+      alert("Voice input is not supported in WeChat's browser.\nPlease open this page in Chrome or your phone's browser.\n\n请在手机浏览器中打开此页面以使用语音功能。");
+      return;
+    }
+
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });

@@ -36,7 +36,6 @@ export function Composer({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const holdActiveRef = useRef(false);
-  const holdCleanupRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     const mq = window.matchMedia("(hover: none) and (pointer: coarse)");
@@ -224,15 +223,6 @@ export function Composer({
     }
   }
 
-  // Clean up any dangling window touch listeners on unmount
-  useEffect(() => {
-    return () => {
-      if (holdCleanupRef.current) {
-        holdCleanupRef.current();
-        holdCleanupRef.current = null;
-      }
-    };
-  }, []);
 
   // ─── Render ───────────────────────────────────────────────────────────────
 
@@ -406,24 +396,14 @@ export function Composer({
                     return;
                   }
 
-                  // Permission already granted — own the full gesture
+                  // Permission already granted — own the full gesture.
+                  // We do NOT attach window listeners here because iOS cancels
+                  // the touch sequence when the mic button is removed from the
+                  // DOM (which happens on the next render). Instead we mount a
+                  // fullscreen overlay that captures the finger-up event reliably.
                   e.preventDefault();
                   holdActiveRef.current = true;
                   void startRecording();
-
-                  // Listen at window level so releasing anywhere stops the recording
-                  function onRelease() {
-                    if (holdActiveRef.current) {
-                      holdActiveRef.current = false;
-                      void stopRecording();
-                    }
-                    holdCleanupRef.current = null;
-                    window.removeEventListener("touchend", onRelease);
-                    window.removeEventListener("touchcancel", onRelease);
-                  }
-                  holdCleanupRef.current = onRelease;
-                  window.addEventListener("touchend", onRelease);
-                  window.addEventListener("touchcancel", onRelease);
                 } : undefined}
               >
                 <MicIcon />
@@ -525,6 +505,21 @@ export function Composer({
           </span>
           <span className="hidden sm:inline">RHEA Index</span>
         </div>
+      )}
+
+      {/* Hold-to-talk release overlay — mobile only.
+          Mounted as soon as recording starts. A new fixed element is completely
+          independent of the original touch sequence, so iOS can't cancel it
+          when the mic button is removed from the DOM. Any finger-up anywhere
+          on screen hits this overlay and stops the recording. */}
+      {isMobile && recorderState === "recording" && (
+        <div
+          className="fixed inset-0 z-[200]"
+          style={{ touchAction: "none" }}
+          onTouchEnd={() => { holdActiveRef.current = false; void stopRecording(); }}
+          onPointerUp={() => { holdActiveRef.current = false; void stopRecording(); }}
+          onTouchCancel={() => { holdActiveRef.current = false; void stopRecording(); }}
+        />
       )}
 
       {/* Expand modal */}
