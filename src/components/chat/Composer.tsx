@@ -36,6 +36,7 @@ export function Composer({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const holdActiveRef = useRef(false);
+  const moveCleanupRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     const mq = window.matchMedia("(hover: none) and (pointer: coarse)");
@@ -87,6 +88,8 @@ export function Composer({
   }
 
   function handleOverlayRelease() {
+    moveCleanupRef.current?.();
+    moveCleanupRef.current = null;
     holdActiveRef.current = false;
     const shouldCancel = inCancelZoneRef.current;
     inCancelZoneRef.current = false;
@@ -97,6 +100,20 @@ export function Composer({
       void stopRecording();
     }
   }
+
+  function handleOverlayCancel() {
+    moveCleanupRef.current?.();
+    moveCleanupRef.current = null;
+    holdActiveRef.current = false;
+    inCancelZoneRef.current = false;
+    setInCancelZone(false);
+    cancelRecording();
+  }
+
+  // Clean up document touchmove listener if component unmounts mid-recording
+  useEffect(() => {
+    return () => { moveCleanupRef.current?.(); moveCleanupRef.current = null; };
+  }, []);
 
   // Suppress text selection anywhere on the page while recording on mobile.
   // Applied immediately (not waiting for the overlay to mount) to close the
@@ -441,12 +458,27 @@ export function Composer({
                   }
 
                   // Permission already granted — own the full gesture.
-                  // We do NOT attach window listeners here because iOS cancels
-                  // the touch sequence when the mic button is removed from the
-                  // DOM (which happens on the next render). Instead we mount a
-                  // fullscreen overlay that captures the finger-up event reliably.
                   e.preventDefault();
                   holdActiveRef.current = true;
+
+                  // iOS does NOT re-target touchmove to newly-mounted elements —
+                  // only touchend gets re-targeted (to whatever is under the finger).
+                  // So we register a native document listener RIGHT NOW, synchronously,
+                  // before startRecording() triggers a re-render that removes this button.
+                  // This is the only reliable way to track finger position on iOS.
+                  function onDocMove(ev: TouchEvent) {
+                    const y = ev.touches[0]?.clientY ?? 0;
+                    const el = cancelZoneRef.current;
+                    const threshold = el
+                      ? el.getBoundingClientRect().top - 15
+                      : window.innerHeight * 0.72;
+                    const inZone = y >= threshold;
+                    inCancelZoneRef.current = inZone;
+                    setInCancelZone(inZone);
+                  }
+                  document.addEventListener("touchmove", onDocMove, { passive: true });
+                  moveCleanupRef.current = () => document.removeEventListener("touchmove", onDocMove);
+
                   void startRecording();
                 } : undefined}
               >
@@ -559,10 +591,9 @@ export function Composer({
         <div
           className="fixed inset-0 z-[200] flex flex-col bg-black/55 backdrop-blur-sm"
           style={{ touchAction: "none" }}
-          onTouchMove={(e) => updateCancelZone(e.touches[0]?.clientY ?? 0)}
           onTouchEnd={handleOverlayRelease}
           onPointerUp={handleOverlayRelease}
-          onTouchCancel={() => { holdActiveRef.current = false; inCancelZoneRef.current = false; setInCancelZone(false); cancelRecording(); }}
+          onTouchCancel={handleOverlayCancel}
         >
           {/* ── Recording zone (top 72%) ── */}
           <div className="flex flex-1 flex-col items-center justify-center px-6">
