@@ -35,6 +35,7 @@ export function Composer({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const holdActiveRef = useRef(false);
+  const holdCleanupRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     const mq = window.matchMedia("(hover: none) and (pointer: coarse)");
@@ -211,6 +212,16 @@ export function Composer({
     }
   }
 
+  // Clean up any dangling window touch listeners on unmount
+  useEffect(() => {
+    return () => {
+      if (holdCleanupRef.current) {
+        holdCleanupRef.current();
+        holdCleanupRef.current = null;
+      }
+    };
+  }, []);
+
   // ─── Render ───────────────────────────────────────────────────────────────
 
   const canSend = !disabled && (value.trim().length > 0 || readyUrls.length > 0);
@@ -278,7 +289,7 @@ export function Composer({
         {/* Input row — changes entirely when recording */}
         {recorderState === "recording" ? (
           <div className="flex items-center gap-3 px-3 py-2.5">
-            {/* Pulsing indicator + Listening label + elapsed */}
+            {/* Pulsing indicator */}
             <span className="relative flex h-2.5 w-2.5 shrink-0">
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-60" />
               <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-red-400" />
@@ -286,27 +297,20 @@ export function Composer({
             <span className="text-sm font-medium text-red-400">Listening</span>
             <span className="font-mono text-sm text-red-400">{formatElapsed(elapsed)}</span>
             <div className="flex-1" />
-            {/* Stop button */}
-            <button
-              type="button"
-              aria-label="Stop recording"
-              title="Stop recording"
-              className="rhea-focus inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-red-500/15 text-red-400 transition hover:bg-red-500/25"
-              onClick={!isMobile ? () => void stopRecording() : undefined}
-              onTouchEnd={isMobile ? (e) => {
-                e.preventDefault();
-                if (holdActiveRef.current) {
-                  holdActiveRef.current = false;
-                  void stopRecording();
-                }
-              } : undefined}
-              onTouchCancel={isMobile ? () => {
-                holdActiveRef.current = false;
-                void stopRecording();
-              } : undefined}
-            >
-              <StopIcon />
-            </button>
+            {/* Desktop: explicit stop button. Mobile: release anywhere stops (window listener). */}
+            {isMobile ? (
+              <span className="text-xs text-red-400/70">Release</span>
+            ) : (
+              <button
+                type="button"
+                aria-label="Stop recording"
+                title="Stop recording"
+                className="rhea-focus inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-red-500/15 text-red-400 transition hover:bg-red-500/25"
+                onClick={() => void stopRecording()}
+              >
+                <StopIcon />
+              </button>
+            )}
           </div>
         ) : recorderState === "transcribing" ? (
           <div className="flex items-center gap-3 px-3 py-2.5">
@@ -325,10 +329,10 @@ export function Composer({
                 title={atLimit ? "Image limit reached (10)" : "Attach images"}
                 className={[
                   "rhea-focus flex h-9 w-9 items-center justify-center rounded-[var(--radius-md)]",
-                  "text-[color:var(--text-2)] transition",
+                  "text-[color:var(--text-1)] transition",
                   disabled || atLimit
                     ? "cursor-not-allowed opacity-35"
-                    : "hover:bg-[color:var(--bg-3)] hover:text-[color:var(--text-1)]",
+                    : "hover:bg-[color:var(--bg-3)] hover:text-[color:var(--text-0)]",
                 ].join(" ")}
               >
                 <ImageIcon />
@@ -361,25 +365,43 @@ export function Composer({
             />
 
             {/* Mic button */}
-            <button
-              type="button"
-              aria-label="Voice input"
-              title="Voice input"
-              disabled={disabled}
-              className={[
-                "rhea-focus inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-md)] transition",
-                "text-[color:var(--text-2)] hover:bg-[color:var(--bg-3)] hover:text-[color:var(--text-1)]",
-                disabled ? "cursor-not-allowed opacity-35" : "",
-              ].join(" ")}
-              onClick={!isMobile ? () => void startRecording() : undefined}
-              onTouchStart={isMobile ? (e) => {
-                e.preventDefault();
-                holdActiveRef.current = true;
-                void startRecording();
-              } : undefined}
-            >
-              <MicIcon />
-            </button>
+            <div className="relative shrink-0">
+              <button
+                type="button"
+                aria-label={isMobile ? "Hold to speak" : "Voice input"}
+                title={isMobile ? "Hold to speak · 按住说话" : "Voice input"}
+                disabled={disabled}
+                className={[
+                  "rhea-focus inline-flex h-9 w-9 items-center justify-center rounded-[var(--radius-md)] transition",
+                  "text-[color:var(--text-1)] hover:bg-[color:var(--bg-3)] hover:text-[color:var(--text-0)]",
+                  disabled ? "cursor-not-allowed opacity-35" : "",
+                  isMobile ? "touch-none select-none" : "",
+                ].join(" ")}
+                style={isMobile ? { WebkitUserSelect: "none", userSelect: "none" } : undefined}
+                onClick={!isMobile ? () => void startRecording() : undefined}
+                onTouchStart={isMobile && !disabled ? (e) => {
+                  e.preventDefault();
+                  holdActiveRef.current = true;
+                  void startRecording();
+
+                  // Listen at window level so releasing anywhere stops the recording
+                  function onRelease() {
+                    if (holdActiveRef.current) {
+                      holdActiveRef.current = false;
+                      void stopRecording();
+                    }
+                    holdCleanupRef.current = null;
+                    window.removeEventListener("touchend", onRelease);
+                    window.removeEventListener("touchcancel", onRelease);
+                  }
+                  holdCleanupRef.current = onRelease;
+                  window.addEventListener("touchend", onRelease);
+                  window.addEventListener("touchcancel", onRelease);
+                } : undefined}
+              >
+                <MicIcon />
+              </button>
+            </div>
 
             {/* Send button */}
             <button
@@ -434,9 +456,11 @@ export function Composer({
             "text-xs",
             elapsed >= 50 ? "text-red-400" : "text-[color:var(--text-2)]",
           ].join(" ")}>
-            {60 - elapsed > 0
-              ? `${60 - elapsed} second${60 - elapsed === 1 ? "" : "s"} remaining`
-              : "Stopping…"}
+            {isMobile
+              ? "Release to stop"
+              : (60 - elapsed > 0
+                  ? `${60 - elapsed} second${60 - elapsed === 1 ? "" : "s"} remaining`
+                  : "Stopping…")}
           </p>
         </div>
       )}
@@ -467,7 +491,9 @@ export function Composer({
             {disabled
               ? "Streaming response…"
               : hasImages
-              ? `${activeImageCount}/10 images · Enter to send`
+              ? `${activeImageCount}/10 images${isMobile ? "" : " · Enter to send"}`
+              : isMobile
+              ? "Hold mic to speak"
               : "Enter to send · Shift+Enter for newline · ⌘V to paste image"}
           </span>
           <span className="hidden sm:inline">RHEA Index</span>

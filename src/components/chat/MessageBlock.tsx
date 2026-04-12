@@ -251,7 +251,7 @@ export function MessageBlock({
                 onClick={onShare}
                 className={[
                   "inline-flex h-7 w-7 items-center justify-center rounded-lg",
-                  "text-[color:var(--text-2)] transition cursor-pointer",
+                  "text-[color:var(--text-1)] transition cursor-pointer",
                   "hover:bg-[color:var(--bg-3)] hover:text-[color:var(--text-0)] active:scale-[0.97]",
                 ].join(" ")}
               >
@@ -271,7 +271,7 @@ export function MessageBlock({
                 "disabled:cursor-not-allowed disabled:opacity-60",
                 isFavorite
                   ? "text-[color:var(--accent)]"
-                  : "text-[color:var(--text-2)]",
+                  : "text-[color:var(--text-1)]",
               ].join(" ")}
             >
               <BookmarkIcon filled={isFavorite} busy={favoriteBusy} />
