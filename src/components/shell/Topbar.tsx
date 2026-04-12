@@ -11,6 +11,8 @@ export function Topbar(props: {
   participants: Participant[];
   onOpenSidebar: () => void;
   onNewConversation?: () => void;
+  onDeleteConversation?: () => void;
+  deleteConversationLabel?: string;
   selectionMode?: boolean;
   selectionCount?: number;
   onEnterSelectionMode?: () => void;
@@ -74,18 +76,6 @@ export function Topbar(props: {
             </div>
           )}
 
-          {/* ── Desktop: Select button (icon + text) ── */}
-          {!props.selectionMode && props.onEnterSelectionMode && (
-            <button
-              className="hidden md:inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-md)] border border-[color:var(--border-0)] bg-[color:var(--bg-2)] px-3 text-sm text-[color:var(--text-0)] transition hover:bg-[color:var(--bg-3)] rhea-focus"
-              onClick={props.onEnterSelectionMode}
-              aria-label="Select messages"
-            >
-              <SelectIcon />
-              Select
-            </button>
-          )}
-
           {/* ── Selection count indicator (read-only pill) ── */}
           {props.selectionMode && (
             <span className="inline-flex items-center gap-1.5 rounded-full bg-[color:var(--accent)]/12 px-2.5 py-1 text-[12px] font-medium text-[color:var(--accent)]">
@@ -94,9 +84,9 @@ export function Topbar(props: {
             </span>
           )}
 
-          {/* ── Mobile: "…" menu (hidden when in selection mode) ── */}
+          {/* ── "…" menu — desktop + mobile (hidden in selection mode) ── */}
           {!props.selectionMode && (
-            <div ref={moreMenuRef} className="relative md:hidden">
+            <div ref={moreMenuRef} className="relative">
               <button
                 className="inline-flex h-9 w-9 items-center justify-center rounded-[var(--radius-md)] border border-[color:var(--border-0)] bg-[color:var(--bg-2)] text-[color:var(--text-0)] transition hover:bg-[color:var(--bg-3)] rhea-focus"
                 onClick={() => setMoreOpen((v) => !v)}
@@ -108,20 +98,31 @@ export function Topbar(props: {
 
               {moreOpen && (
                 <div className="absolute right-0 top-full z-20 mt-1.5 w-52 overflow-hidden rounded-[var(--radius-lg)] border border-white/[0.07] bg-[color:var(--bg-3)] shadow-[0_8px_40px_rgba(0,0,0,0.55),0_2px_8px_rgba(0,0,0,0.35)]">
-                    {props.onNewConversation && (
+                  {props.onNewConversation && (
+                    <MenuRow
+                      icon={<PlusIcon />}
+                      label="New conversation"
+                      onClick={() => { props.onNewConversation!(); closeMore(); }}
+                    />
+                  )}
+                  {props.onEnterSelectionMode && (
+                    <MenuRow
+                      icon={<SelectIcon />}
+                      label="Select messages"
+                      onClick={() => { props.onEnterSelectionMode!(); closeMore(); }}
+                    />
+                  )}
+                  {props.onDeleteConversation && (
+                    <>
+                      <div className="mx-3 my-1 h-px bg-white/[0.06]" />
                       <MenuRow
-                        icon={<PlusIcon />}
-                        label="New conversation"
-                        onClick={() => { props.onNewConversation!(); closeMore(); }}
+                        icon={<TrashIcon />}
+                        label={props.deleteConversationLabel ?? "Delete conversation"}
+                        onClick={() => { props.onDeleteConversation!(); closeMore(); }}
+                        destructive
                       />
-                    )}
-                    {props.onEnterSelectionMode && (
-                      <MenuRow
-                        icon={<SelectIcon />}
-                        label="Select messages"
-                        onClick={() => { props.onEnterSelectionMode!(); closeMore(); }}
-                      />
-                    )}
+                    </>
+                  )}
                 </div>
               )}
             </div>
@@ -215,6 +216,14 @@ function XIcon() {
   return (
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M3 6h18M8 6V4a1 1 0 011-1h6a1 1 0 011 1v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

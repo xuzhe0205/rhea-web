@@ -7,6 +7,14 @@ import { PinOffIcon } from "../ui/PinOffIcon";
 import { ActionMenu } from "../ui/ActionMenu";
 import { ActionMenuItem } from "../ui/ActionMenuItem";
 
+function TrashIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M3 6h18M8 6V4a1 1 0 011-1h6a1 1 0 011 1v2M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 type Props = {
   title: string;
   active?: boolean;
@@ -14,13 +22,14 @@ type Props = {
   pinPending?: boolean;
   onClick?: () => void;
   onTogglePin?: () => void;
+  onDelete?: () => void;
 };
 
 const LONG_PRESS_MS = 450;
 const MOVE_TOLERANCE_PX = 10;
 
 export const ConversationNavItem = React.forwardRef<HTMLDivElement, Props>(
-  function ConversationNavItem({ title, active, pinned, pinPending, onClick, onTogglePin }, ref) {
+  function ConversationNavItem({ title, active, pinned, pinPending, onClick, onTogglePin, onDelete }, ref) {
     const [hovered, setHovered] = useState(false);
     const [pressing, setPressing] = useState(false);
     const [menuOpen, setMenuOpen] = useState(false);
@@ -124,6 +133,11 @@ export const ConversationNavItem = React.forwardRef<HTMLDivElement, Props>(
     const handleMenuPinClick = () => {
       setMenuOpen(false);
       onTogglePin?.();
+    };
+
+    const handleMenuDeleteClick = () => {
+      setMenuOpen(false);
+      onDelete?.();
     };
 
     return (
@@ -247,6 +261,15 @@ export const ConversationNavItem = React.forwardRef<HTMLDivElement, Props>(
                   )
                 }
               />
+              {onDelete && (
+                <ActionMenuItem
+                  onClick={handleMenuDeleteClick}
+                  label="Delete"
+                  danger
+                  showDividerAbove
+                  icon={<TrashIcon />}
+                />
+              )}
             </ActionMenu>
           </div>
         ) : null}

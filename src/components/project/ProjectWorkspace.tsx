@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react"; // useRef kept for actionsRef
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ThreadComposer } from "./ThreadComposer";
 import {
   getProject,
@@ -11,6 +11,7 @@ import {
   type ProjectDTO,
   type ProjectConversationDTO,
 } from "@/lib/projects";
+import { deleteConversation } from "@/lib/conversations";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -42,6 +43,7 @@ type Props = {
   onNavigateToConversation: (id: string, initialMessage?: string, imageUrls?: string[]) => void;
   onProjectDeleted: () => void;
   onProjectUpdated: () => void;
+  onConversationDeleted?: (conversationId: string) => void;
 };
 
 // ─── Main Component ──────────────────────────────────────────────────────────
@@ -52,6 +54,7 @@ export function ProjectWorkspace({
   onNavigateToConversation,
   onProjectDeleted,
   onProjectUpdated,
+  onConversationDeleted,
 }: Props) {
   const [project, setProject] = useState<ProjectDTO | null>(null);
   const [conversations, setConversations] = useState<ProjectConversationDTO[]>([]);
@@ -69,6 +72,10 @@ export function ProjectWorkspace({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const [deleteThreadTarget, setDeleteThreadTarget] = useState<string | null>(null);
+  const [deletingThread, setDeletingThread] = useState(false);
+  const [deleteThreadError, setDeleteThreadError] = useState<string | null>(null);
 
 
   // ─── Load data ─────────────────────────────────────────────────────────────
@@ -158,6 +165,25 @@ export function ProjectWorkspace({
     } catch (err) {
       setDeleteError(err instanceof Error ? err.message : "Failed to delete project.");
       setDeleting(false);
+    }
+  }
+
+  // ─── Delete thread ─────────────────────────────────────────────────────────
+
+  async function handleDeleteThread() {
+    if (!deleteThreadTarget) return;
+    const convId = deleteThreadTarget;
+    setDeletingThread(true);
+    setDeleteThreadError(null);
+    try {
+      await deleteConversation(token, convId);
+      setDeleteThreadTarget(null);
+      setConversations((prev) => prev.filter((c) => c.id !== convId));
+      onConversationDeleted?.(convId);
+    } catch (err) {
+      setDeleteThreadError(err instanceof Error ? err.message : "Failed to delete thread.");
+    } finally {
+      setDeletingThread(false);
     }
   }
 
@@ -349,6 +375,7 @@ export function ProjectWorkspace({
                     key={conv.id}
                     conv={conv}
                     onClick={() => onNavigateToConversation(conv.id)}
+                    onDelete={() => { setDeleteThreadTarget(conv.id); setDeleteThreadError(null); }}
                   />
                 ))}
               </div>
@@ -370,7 +397,7 @@ export function ProjectWorkspace({
         </div>
       </div>
 
-      {/* ── Delete Confirmation ─────────────────────────────────────────── */}
+      {/* ── Delete Project Confirmation ─────────────────────────────────── */}
       {confirmDelete && (
         <DeleteConfirmOverlay
           projectName={project.name}
@@ -379,6 +406,17 @@ export function ProjectWorkspace({
           error={deleteError}
           onCancel={() => { setConfirmDelete(false); setDeleteError(null); }}
           onConfirm={() => void handleDelete()}
+        />
+      )}
+
+      {/* ── Delete Thread Confirmation ──────────────────────────────────── */}
+      {deleteThreadTarget && (
+        <DeleteThreadConfirmOverlay
+          threadTitle={conversations.find((c) => c.id === deleteThreadTarget)?.title ?? "this thread"}
+          deleting={deletingThread}
+          error={deleteThreadError}
+          onCancel={() => { setDeleteThreadTarget(null); setDeleteThreadError(null); }}
+          onConfirm={() => void handleDeleteThread()}
         />
       )}
     </div>
@@ -390,38 +428,99 @@ export function ProjectWorkspace({
 function ConversationRow({
   conv,
   onClick,
+  onDelete,
 }: {
   conv: ProjectConversationDTO;
   onClick: () => void;
+  onDelete?: () => void;
 }) {
+  const [hovered, setHovered] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const rowRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handler = (e: MouseEvent | TouchEvent) => {
+      if (rowRef.current && !rowRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    document.addEventListener("touchstart", handler);
+    return () => {
+      document.removeEventListener("mousedown", handler);
+      document.removeEventListener("touchstart", handler);
+    };
+  }, [menuOpen]);
+
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="group flex w-full items-start gap-3 rounded-[var(--radius-md)] px-3 py-3 text-left transition-all duration-150 hover:bg-[color:var(--bg-3)]"
+    <div
+      ref={rowRef}
+      className="relative group"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => { setHovered(false); }}
     >
-      <div className="mt-0.5 shrink-0 text-[color:var(--text-2)] group-hover:text-[color:var(--text-1)] transition-colors duration-150">
-        <ThreadIcon />
-      </div>
-
-      <div className="min-w-0 flex-1">
-        <div className="flex items-start justify-between gap-2">
-          <span className="truncate text-sm font-medium text-[color:var(--text-0)]">
-            {conv.title}
-          </span>
-          <span className="shrink-0 text-[11px] text-[color:var(--text-2)] mt-0.5">
-            {relativeTime(conv.updated_at)}
-          </span>
+      <button
+        type="button"
+        onClick={onClick}
+        className="flex w-full items-start gap-3 rounded-[var(--radius-md)] px-3 py-3 text-left transition-all duration-150 hover:bg-[color:var(--bg-3)]"
+      >
+        <div className="mt-0.5 shrink-0 text-[color:var(--text-2)] group-hover:text-[color:var(--text-1)] transition-colors duration-150">
+          <ThreadIcon />
         </div>
-        {conv.preview && (
-          <p className="mt-0.5 truncate text-xs text-[color:var(--text-2)]">{conv.preview}</p>
-        )}
-      </div>
 
-      <div className="shrink-0 opacity-0 group-hover:opacity-30 transition-opacity duration-150 mt-0.5 text-[color:var(--text-1)]">
-        <ChevronRightIcon />
-      </div>
-    </button>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-2">
+            <span className="truncate text-sm font-medium text-[color:var(--text-0)]">
+              {conv.title}
+            </span>
+            {/* Date hidden on hover; replaced by "..." button below */}
+            {!hovered && (
+              <span className="shrink-0 text-[11px] text-[color:var(--text-2)] mt-0.5">
+                {relativeTime(conv.updated_at)}
+              </span>
+            )}
+          </div>
+          {conv.preview && (
+            <p className="mt-0.5 truncate text-xs text-[color:var(--text-2)]">{conv.preview}</p>
+          )}
+        </div>
+
+        {!hovered && (
+          <div className="shrink-0 opacity-0 group-hover:opacity-30 transition-opacity duration-150 mt-0.5 text-[color:var(--text-1)]">
+            <ChevronRightIcon />
+          </div>
+        )}
+      </button>
+
+      {/* "..." button — shown on hover */}
+      {hovered && onDelete && (
+        <div ref={menuRef} className="absolute right-2 top-1/2 -translate-y-1/2 z-10">
+          <button
+            type="button"
+            aria-label="Thread actions"
+            onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
+            className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-md)] text-[color:var(--text-2)] hover:bg-[color:var(--bg-2)] hover:text-[color:var(--text-0)] transition"
+          >
+            <DotsIcon />
+          </button>
+
+          {menuOpen && (
+            <div className="absolute right-0 top-full mt-1 z-20 min-w-[140px] rounded-[var(--radius-md)] border border-[color:var(--border-0)] bg-[color:var(--bg-2)] py-1 shadow-xl">
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onDelete(); }}
+                className="flex w-full items-center gap-2.5 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 transition"
+              >
+                <TrashIcon />
+                Delete thread
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -562,6 +661,57 @@ function DeleteConfirmOverlay({
               {deleting ? "Deleting…" : "Delete"}
             </button>
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DeleteThreadConfirmOverlay({
+  threadTitle,
+  deleting,
+  error,
+  onCancel,
+  onConfirm,
+}: {
+  threadTitle: string;
+  deleting: boolean;
+  error: string | null;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onCancel(); };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onCancel]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" aria-hidden="true" onClick={onCancel} />
+      <div className="relative w-full max-w-sm rounded-[var(--radius-lg)] border border-[color:var(--border-0)] bg-[color:var(--bg-1)] p-6 shadow-2xl">
+        <h3 className="text-base font-semibold text-[color:var(--text-0)]">Delete thread?</h3>
+        <p className="mt-2 text-sm text-[color:var(--text-2)]">
+          <span className="font-medium text-[color:var(--text-1)]">&ldquo;{threadTitle}&rdquo;</span>{" "}
+          and all its messages will be permanently removed. This cannot be undone.
+        </p>
+        {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
+        <div className="mt-5 flex gap-3">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="flex-1 rounded-[var(--radius-md)] border border-[color:var(--border-0)] py-2 text-sm text-[color:var(--text-1)] hover:bg-[color:var(--bg-3)] transition"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={deleting}
+            className="flex-1 rounded-[var(--radius-md)] bg-red-500/90 py-2 text-sm font-medium text-white hover:bg-red-500 transition disabled:opacity-50"
+          >
+            {deleting ? "Deleting…" : "Delete"}
+          </button>
         </div>
       </div>
     </div>

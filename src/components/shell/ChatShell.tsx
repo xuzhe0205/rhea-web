@@ -12,7 +12,7 @@ import { RagBadge } from "@/components/chat/RagBadge";
 import { CommentComposer } from "@/components/chat/CommentComposer";
 import { CommentThreadPanel } from "@/components/chat/CommentThreadPanel";
 import { useAuth } from "@/context/AuthContext";
-import { listConversations, patchConversationPin, getConversation } from "@/lib/conversations";
+import { listConversations, patchConversationPin, getConversation, deleteConversation } from "@/lib/conversations";
 import { listProjects, type ProjectDTO } from "@/lib/projects";
 import { CreateProjectModal } from "@/components/project/CreateProjectModal";
 import { ProjectWorkspace } from "@/components/project/ProjectWorkspace";
@@ -238,6 +238,10 @@ export function ChatShell() {
   } | null>(null);
   const [savingComment, setSavingComment] = useState(false);
   const [deletingCommentId, setDeletingCommentId] = useState<string | null>(null);
+
+  const [deleteConvTarget, setDeleteConvTarget] = useState<string | null>(null); // conversationId to delete
+  const [deletingConv, setDeletingConv] = useState(false);
+  const [deleteConvError, setDeleteConvError] = useState<string | null>(null);
 
   const footerRef = useRef<HTMLDivElement | null>(null);
   const [footerHeight, setFooterHeight] = useState(0);
@@ -1043,6 +1047,32 @@ export function ChatShell() {
     }
   }
 
+  async function handleDeleteConversation() {
+    if (!token || !deleteConvTarget) return;
+    const convId = deleteConvTarget;
+    setDeletingConv(true);
+    setDeleteConvError(null);
+    try {
+      await deleteConversation(token, convId);
+      setDeleteConvTarget(null);
+      // Remove from local state
+      setConversations((prev) => prev.filter((c) => c.id !== convId));
+      setMessagesByConversation((prev) => {
+        const next = { ...prev };
+        delete next[convId];
+        return next;
+      });
+      if (activeConversationId === convId) {
+        // For project threads, go back to the project page; otherwise home.
+        router.push(activeProjectId ? `/p/${activeProjectId}` : "/");
+      }
+    } catch (err) {
+      setDeleteConvError(err instanceof Error ? err.message : "Failed to delete conversation.");
+    } finally {
+      setDeletingConv(false);
+    }
+  }
+
   function enterSelectionMode() {
     setSelectionMode(true);
     setSelectedIds(new Set());
@@ -1459,6 +1489,11 @@ export function ChatShell() {
           onCreateProject={() => setCreateProjectModalOpen(true)}
           onCreateConversation={createConversationLocal}
           onTogglePin={handleTogglePin}
+          onDeleteConversation={(convId) => {
+            setSidebarOpen(false);
+            setDeleteConvTarget(convId);
+            setDeleteConvError(null);
+          }}
           user={me}
           onSignOut={signOut}
         />
@@ -1470,6 +1505,8 @@ export function ChatShell() {
             participants={participants}
             onOpenSidebar={() => setSidebarOpen((v) => !v)}
             onNewConversation={createConversationLocal}
+            onDeleteConversation={activeConversationId ? () => { setDeleteConvTarget(activeConversationId); setDeleteConvError(null); } : undefined}
+            deleteConversationLabel={isProjectThread ? "Delete thread" : "Delete conversation"}
             selectionMode={selectionMode}
             selectionCount={selectedIds.size}
             onEnterSelectionMode={activeMessages.length > 0 ? enterSelectionMode : undefined}
@@ -1730,6 +1767,17 @@ export function ChatShell() {
           }}
         />
       )}
+
+      {deleteConvTarget && (
+        <DeleteConversationModal
+          conversationTitle={conversations.find((c) => c.id === deleteConvTarget)?.title ?? null}
+          kind={isProjectThread ? "thread" : "conversation"}
+          deleting={deletingConv}
+          error={deleteConvError}
+          onCancel={() => { setDeleteConvTarget(null); setDeleteConvError(null); }}
+          onConfirm={() => void handleDeleteConversation()}
+        />
+      )}
     </div>
   );
 }
@@ -1812,6 +1860,61 @@ function ConversationEmptyHint() {
       <div className="mt-2 text-sm text-[color:var(--text-1)]">
         Ask something, paste notes, or continue building your thinking here. Older messages will be
         paginated upward once we add infinite scroll.
+      </div>
+    </div>
+  );
+}
+
+function DeleteConversationModal({
+  conversationTitle,
+  kind = "conversation",
+  deleting,
+  error,
+  onCancel,
+  onConfirm,
+}: {
+  conversationTitle: string | null;
+  kind?: "conversation" | "thread";
+  deleting: boolean;
+  error: string | null;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onCancel(); };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onCancel]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" aria-hidden="true" onClick={onCancel} />
+      <div className="relative w-full max-w-sm rounded-[var(--radius-lg)] border border-[color:var(--border-0)] bg-[color:var(--bg-1)] p-6 shadow-2xl">
+        <h3 className="text-base font-semibold text-[color:var(--text-0)]">Delete {kind}?</h3>
+        <p className="mt-2 text-sm text-[color:var(--text-2)]">
+          {conversationTitle
+            ? <><span className="font-medium text-[color:var(--text-1)]">&ldquo;{conversationTitle}&rdquo;</span>{" "}and all its messages will be permanently removed. This cannot be undone.</>
+            : <>All messages in this {kind} will be permanently removed. This cannot be undone.</>
+          }
+        </p>
+        {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
+        <div className="mt-5 flex gap-3">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="flex-1 rounded-[var(--radius-md)] border border-[color:var(--border-0)] py-2 text-sm text-[color:var(--text-1)] hover:bg-[color:var(--bg-3)] transition"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={deleting}
+            className="flex-1 rounded-[var(--radius-md)] bg-red-500/90 py-2 text-sm font-medium text-white hover:bg-red-500 transition disabled:opacity-50"
+          >
+            {deleting ? "Deleting…" : "Delete"}
+          </button>
+        </div>
       </div>
     </div>
   );

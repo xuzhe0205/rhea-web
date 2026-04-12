@@ -39,3 +39,10 @@ export async function getConversation(token: string, conversationId: string) {
     token,
   });
 }
+
+export async function deleteConversation(token: string, conversationId: string) {
+  return apiFetch<void>(`/v1/conversations/${conversationId}`, {
+    method: "DELETE",
+    token,
+  });
+}

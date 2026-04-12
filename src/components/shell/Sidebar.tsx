@@ -62,6 +62,7 @@ export function Sidebar(props: {
 
   onCreateConversation: () => void;
   onTogglePin: (conversationId: string, nextPinned: boolean) => Promise<void> | void;
+  onDeleteConversation?: (conversationId: string) => void;
 
   user?: User | null;
   onSignOut?: () => void;
@@ -211,6 +212,7 @@ export function Sidebar(props: {
                       pinPending={pendingPinId === c.id}
                       onClick={() => props.onSelectConversation(c.id)}
                       onTogglePin={() => handleTogglePin(c.id, !c.isPinned)}
+                      onDelete={props.onDeleteConversation ? () => props.onDeleteConversation!(c.id) : undefined}
                     />
                   ))
                 )}

@@ -2,6 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ImageStrip } from "@/components/chat/ImageStrip";
+import {
+  formatElapsed,
+  ImageAttachIcon,
+  MicIcon,
+  MobileRecordingOverlay,
+  RecordingInlineRow,
+  RecordingProgress,
+  TranscribingInlineRow,
+} from "@/components/chat/ComposerShared";
 import { useImageAttach, MAX_IMAGES } from "@/hooks/useImageAttach";
 import { useVoiceRecorder } from "@/hooks/useVoiceRecorder";
 import { transcribeAudio } from "@/lib/transcribe";
@@ -67,37 +76,6 @@ export function Composer({
   }, [token]);
 
   const { recorderState, elapsed, startRecording, stopRecording, cancelRecording } = useVoiceRecorder(handleTranscribed);
-
-  // Track whether the finger has slid into the cancel zone.
-  // Use a ref (not just state) so onTouchEnd closure always reads the latest value.
-  const [inCancelZone, setInCancelZone] = useState(false);
-  const inCancelZoneRef = useRef(false);
-  const cancelZoneRef = useRef<HTMLDivElement>(null);
-
-  // Returns true only when the pointer is within the pill element ± CANCEL_BUFFER px.
-  // Checking BOTH top and bottom prevents the entire area below the pill from
-  // becoming a cancel zone, which would accidentally cancel when the composer
-  // sits at the bottom of the screen (user's finger already below the pill).
-  const CANCEL_BUFFER = 24;
-  function isOverCancelPill(clientX: number, clientY: number) {
-    const el = cancelZoneRef.current;
-    if (!el) return false;
-    const rect = el.getBoundingClientRect();
-    return (
-      clientY >= rect.top    - CANCEL_BUFFER &&
-      clientY <= rect.bottom + CANCEL_BUFFER &&
-      clientX >= rect.left   - CANCEL_BUFFER &&
-      clientX <= rect.right  + CANCEL_BUFFER
-    );
-  }
-
-  function handleOverlayCancel() {
-    holdActiveRef.current = false;
-    inCancelZoneRef.current = false;
-    setInCancelZone(false);
-    cancelRecording();
-  }
-
 
   // Suppress text selection anywhere on the page while recording on mobile.
   // Applied immediately (not waiting for the overlay to mount) to close the
@@ -335,46 +313,14 @@ export function Composer({
 
         {/* Input row — changes entirely when recording */}
         {recorderState === "recording" ? (
-          <div className="flex items-center gap-3 px-3 py-2.5">
-            {/* Pulsing indicator */}
-            <span className="relative flex h-2.5 w-2.5 shrink-0">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-60" />
-              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-red-400" />
-            </span>
-            <span className="text-sm font-medium text-red-400">Listening</span>
-            <span className="font-mono text-sm text-red-400">{formatElapsed(elapsed)}</span>
-            <div className="flex-1" />
-            {isMobile ? (
-              <span className="text-xs text-red-400/70">Release</span>
-            ) : (
-              <div className="flex items-center gap-2 shrink-0">
-                {/* Cancel — discard recording, no transcription */}
-                <button
-                  type="button"
-                  onClick={() => cancelRecording()}
-                  title="Cancel — recording won't be transcribed"
-                  className="rhea-focus inline-flex h-9 items-center rounded-[var(--radius-md)] px-3 text-xs text-[color:var(--text-1)] transition hover:bg-[color:var(--bg-3)] hover:text-[color:var(--text-0)]"
-                >
-                  Cancel
-                </button>
-                {/* Stop — end recording and transcribe */}
-                <button
-                  type="button"
-                  aria-label="Stop and transcribe"
-                  title="Stop — converts your speech to text"
-                  className="rhea-focus inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-red-500/15 text-red-400 transition hover:bg-red-500/25"
-                  onClick={() => void stopRecording()}
-                >
-                  <StopIcon />
-                </button>
-              </div>
-            )}
-          </div>
+          <RecordingInlineRow
+            elapsed={elapsed}
+            isMobile={isMobile}
+            onCancel={cancelRecording}
+            onStop={() => void stopRecording()}
+          />
         ) : recorderState === "transcribing" ? (
-          <div className="flex items-center gap-3 px-3 py-2.5">
-            <span className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-[color:var(--accent)] border-t-transparent" />
-            <span className="text-sm text-[color:var(--text-1)]">Transcribing your message…</span>
-          </div>
+          <TranscribingInlineRow />
         ) : (
           <div className="flex items-center gap-1.5 p-2">
             {/* Attach button */}
@@ -393,7 +339,7 @@ export function Composer({
                     : "hover:bg-[color:var(--bg-3)] hover:text-[color:var(--text-0)]",
                 ].join(" ")}
               >
-                <ImageIcon />
+                <ImageAttachIcon />
               </button>
               {activeImageCount > 0 && (
                 <span className="pointer-events-none absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[color:var(--accent)] px-0.5 font-mono text-[9px] leading-none text-white">
@@ -501,27 +447,7 @@ export function Composer({
 
       {/* Recording progress */}
       {recorderState === "recording" && (
-        <div className="mt-2 space-y-1.5">
-          <div className="h-[3px] w-full overflow-hidden rounded-full bg-[color:var(--bg-3)]">
-            <div
-              className={[
-                "h-full rounded-full transition-[width] duration-1000 ease-linear",
-                elapsed >= 50 ? "bg-red-400" : "bg-[color:var(--accent)]",
-              ].join(" ")}
-              style={{ width: `${Math.min((elapsed / 60) * 100, 100)}%` }}
-            />
-          </div>
-          <p className={[
-            "text-xs",
-            elapsed >= 50 ? "text-red-400" : "text-[color:var(--text-2)]",
-          ].join(" ")}>
-            {isMobile
-              ? "Release to stop"
-              : (60 - elapsed > 0
-                  ? `${60 - elapsed} second${60 - elapsed === 1 ? "" : "s"} remaining`
-                  : "Stopping…")}
-          </p>
-        </div>
+        <RecordingProgress elapsed={elapsed} isMobile={isMobile} />
       )}
 
       {/* Expand button — shown when textarea value is long */}
@@ -559,83 +485,13 @@ export function Composer({
         </div>
       )}
 
-      {/* Hold-to-talk overlay — mobile only.
-          Layout: top 72% = recording zone (release here → transcribe)
-                  bottom 28% = cancel zone (slide finger down → release to discard)
-          onTouchMove tracks which zone the finger is in; onTouchEnd reads the ref. */}
+      {/* Hold-to-talk overlay — mobile only */}
       {isMobile && recorderState === "recording" && (
-        <div
-          className="fixed inset-0 z-[200] flex flex-col bg-black/55 backdrop-blur-sm"
-          style={{ touchAction: "none" }}
-          onPointerMove={(e) => {
-            const inZone = isOverCancelPill(e.clientX, e.clientY);
-            inCancelZoneRef.current = inZone;
-            setInCancelZone(inZone);
-          }}
-          onPointerUp={(e) => {
-            holdActiveRef.current = false;
-            inCancelZoneRef.current = false;
-            setInCancelZone(false);
-            if (isOverCancelPill(e.clientX, e.clientY)) {
-              cancelRecording();
-            } else {
-              void stopRecording();
-            }
-          }}
-          onPointerCancel={handleOverlayCancel}
-          onTouchEnd={(e) => {
-            // Fallback for browsers where pointer events don't fire on overlay.
-            const t = e.changedTouches[0];
-            holdActiveRef.current = false;
-            inCancelZoneRef.current = false;
-            setInCancelZone(false);
-            if (t && isOverCancelPill(t.clientX, t.clientY)) {
-              cancelRecording();
-            } else {
-              void stopRecording();
-            }
-          }}
-          onTouchCancel={handleOverlayCancel}
-        >
-          {/* ── Recording zone (top 72%) ── */}
-          <div className="flex flex-1 flex-col items-center justify-center px-6">
-            <div className="w-full max-w-sm overflow-hidden rounded-2xl border border-red-500/15 bg-[color:var(--bg-2)] p-5 shadow-2xl">
-              <div className="mb-4 flex items-center gap-3">
-                <span className="relative flex h-3 w-3 shrink-0">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-60" />
-                  <span className="relative inline-flex h-3 w-3 rounded-full bg-red-400" />
-                </span>
-                <span className="text-base font-medium text-red-400">Listening</span>
-                <span className="font-mono text-base text-red-400">{formatElapsed(elapsed)}</span>
-              </div>
-              <div className="h-[3px] w-full overflow-hidden rounded-full bg-[color:var(--bg-3)]">
-                <div
-                  className={["h-full rounded-full transition-[width] duration-1000 ease-linear", elapsed >= 50 ? "bg-red-400" : "bg-[color:var(--accent)]"].join(" ")}
-                  style={{ width: `${Math.min((elapsed / 60) * 100, 100)}%` }}
-                />
-              </div>
-              <p className="mt-3 text-center text-sm text-[color:var(--text-2)]">
-                Release to stop
-              </p>
-            </div>
-          </div>
-
-          {/* ── Cancel zone (bottom 28%) ── */}
-          <div
-            className="flex flex-col items-center justify-start gap-3 pt-5"
-            style={{ height: "28%", paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 16px)" }}
-          >
-            <div
-              ref={cancelZoneRef}
-              className={["flex items-center gap-2 rounded-full border px-5 py-2.5 transition-all duration-150", inCancelZone ? "border-red-400/50 bg-red-500/15 text-red-400 scale-105" : "border-white/15 text-[color:var(--text-2)]"].join(" ")}
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-              </svg>
-              <span className="text-sm">Release here to cancel</span>
-            </div>
-          </div>
-        </div>
+        <MobileRecordingOverlay
+          elapsed={elapsed}
+          onCancelRecording={cancelRecording}
+          onStopRecording={() => void stopRecording()}
+        />
       )}
 
       {/* Expand modal */}
@@ -692,51 +548,10 @@ export function Composer({
 
 // ─── Icons ────────────────────────────────────────────────────────────────────
 
-function formatElapsed(s: number) {
-  const m = Math.floor(s / 60).toString().padStart(1, "0");
-  const sec = (s % 60).toString().padStart(2, "0");
-  return `${m}:${sec}`;
-}
-
-function MicIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <rect x="9" y="2" width="6" height="11" rx="3" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M5 10a7 7 0 0 0 14 0" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      <line x1="12" y1="19" x2="12" y2="22" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      <line x1="9" y1="22" x2="15" y2="22" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function StopIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <rect x="4" y="4" width="16" height="16" rx="2" />
-    </svg>
-  );
-}
-
 function ExpandIcon() {
   return (
     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function ImageIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 17 17" fill="none" aria-hidden="true">
-      <rect x="1.5" y="3" width="14" height="11" rx="2" stroke="currentColor" strokeWidth="1.3" />
-      <circle cx="6" cy="7" r="1.2" fill="currentColor" opacity="0.7" />
-      <path
-        d="M1.5 11.5l3.5-3.5 2.5 2.5 2.5-2.5 4 4"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
     </svg>
   );
 }
