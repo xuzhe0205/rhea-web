@@ -21,6 +21,22 @@ export function useVoiceRecorder(onBlob: (blob: Blob) => Promise<void>) {
     if (autoStopRef.current) { clearTimeout(autoStopRef.current); autoStopRef.current = null; }
   }, []);
 
+  // Cancel: stop the mic, discard audio, never call onBlob.
+  const cancelRecording = useCallback(() => {
+    const mr = mediaRecorderRef.current;
+    if (!mr || mr.state === "inactive") return;
+
+    clearTimers();
+    mr.onstop = () => {
+      chunksRef.current = [];
+      mediaRecorderRef.current = null;
+      setRecorderState("idle");
+      setElapsed(0);
+    };
+    mr.stop();
+    mr.stream.getTracks().forEach((t) => t.stop());
+  }, [clearTimers]);
+
   const stopRecording = useCallback(async () => {
     const mr = mediaRecorderRef.current;
     if (!mr || mr.state === "inactive") return;
@@ -107,5 +123,5 @@ export function useVoiceRecorder(onBlob: (blob: Blob) => Promise<void>) {
     };
   }, [clearTimers]);
 
-  return { recorderState, elapsed, startRecording, stopRecording };
+  return { recorderState, elapsed, startRecording, stopRecording, cancelRecording };
 }

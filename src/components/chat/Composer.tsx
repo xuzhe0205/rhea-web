@@ -66,7 +66,37 @@ export function Composer({
     inputRef.current?.focus();
   }, [token]);
 
-  const { recorderState, elapsed, startRecording, stopRecording } = useVoiceRecorder(handleTranscribed);
+  const { recorderState, elapsed, startRecording, stopRecording, cancelRecording } = useVoiceRecorder(handleTranscribed);
+
+  // Track whether the finger has slid into the cancel zone.
+  // Use a ref (not just state) so onTouchEnd closure always reads the latest value.
+  const [inCancelZone, setInCancelZone] = useState(false);
+  const inCancelZoneRef = useRef(false);
+  const cancelZoneRef = useRef<HTMLDivElement>(null);
+
+  function updateCancelZone(clientY: number) {
+    // Use the actual cancel zone element bounds + 15px buffer above it,
+    // so the pill is easy to hit without pinpoint precision.
+    const el = cancelZoneRef.current;
+    const threshold = el
+      ? el.getBoundingClientRect().top - 15
+      : window.innerHeight * 0.72;
+    const inZone = clientY >= threshold;
+    inCancelZoneRef.current = inZone;
+    setInCancelZone(inZone);
+  }
+
+  function handleOverlayRelease() {
+    holdActiveRef.current = false;
+    const shouldCancel = inCancelZoneRef.current;
+    inCancelZoneRef.current = false;
+    setInCancelZone(false);
+    if (shouldCancel) {
+      cancelRecording();
+    } else {
+      void stopRecording();
+    }
+  }
 
   // Suppress text selection anywhere on the page while recording on mobile.
   // Applied immediately (not waiting for the overlay to mount) to close the
@@ -522,40 +552,53 @@ export function Composer({
       )}
 
       {/* Hold-to-talk overlay — mobile only.
-          • Fixed + fullscreen so any finger-up anywhere stops recording.
-          • Backdrop blur + dim separates the recording state from everything
-            behind it, preventing confusion with prompt cards or message list.
-          • Recording card is rendered INSIDE the overlay so it appears above
-            the blurred content at a safe distance from the screen edges. */}
+          Layout: top 72% = recording zone (release here → transcribe)
+                  bottom 28% = cancel zone (slide finger down → release to discard)
+          onTouchMove tracks which zone the finger is in; onTouchEnd reads the ref. */}
       {isMobile && recorderState === "recording" && (
         <div
-          className="fixed inset-0 z-[200] flex flex-col justify-end bg-black/50 backdrop-blur-sm"
+          className="fixed inset-0 z-[200] flex flex-col bg-black/55 backdrop-blur-sm"
           style={{ touchAction: "none" }}
-          onTouchEnd={() => { holdActiveRef.current = false; void stopRecording(); }}
-          onPointerUp={() => { holdActiveRef.current = false; void stopRecording(); }}
-          onTouchCancel={() => { holdActiveRef.current = false; void stopRecording(); }}
+          onTouchMove={(e) => updateCancelZone(e.touches[0]?.clientY ?? 0)}
+          onTouchEnd={handleOverlayRelease}
+          onPointerUp={handleOverlayRelease}
+          onTouchCancel={() => { holdActiveRef.current = false; inCancelZoneRef.current = false; setInCancelZone(false); cancelRecording(); }}
         >
+          {/* ── Recording zone (top 72%) ── */}
+          <div className="flex flex-1 flex-col items-center justify-center px-6">
+            <div className="w-full max-w-sm overflow-hidden rounded-2xl border border-red-500/15 bg-[color:var(--bg-2)] p-5 shadow-2xl">
+              <div className="mb-4 flex items-center gap-3">
+                <span className="relative flex h-3 w-3 shrink-0">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-60" />
+                  <span className="relative inline-flex h-3 w-3 rounded-full bg-red-400" />
+                </span>
+                <span className="text-base font-medium text-red-400">Listening</span>
+                <span className="font-mono text-base text-red-400">{formatElapsed(elapsed)}</span>
+              </div>
+              <div className="h-[3px] w-full overflow-hidden rounded-full bg-[color:var(--bg-3)]">
+                <div
+                  className={["h-full rounded-full transition-[width] duration-1000 ease-linear", elapsed >= 50 ? "bg-red-400" : "bg-[color:var(--accent)]"].join(" ")}
+                  style={{ width: `${Math.min((elapsed / 60) * 100, 100)}%` }}
+                />
+              </div>
+              <p className="mt-3 text-center text-sm text-[color:var(--text-2)]">
+                Release to stop
+              </p>
+            </div>
+          </div>
+
+          {/* ── Cancel zone (bottom 28%) ── */}
           <div
-            className="mx-4 mb-6 overflow-hidden rounded-2xl border border-red-500/15 bg-[color:var(--bg-2)] p-5 shadow-2xl"
-            style={{ marginBottom: "calc(env(safe-area-inset-bottom, 0px) + 24px)" }}
+            ref={cancelZoneRef}
+            className={["flex flex-col items-center justify-start gap-3 pt-5 transition-colors duration-150", inCancelZone ? "bg-red-500/10" : ""].join(" ")}
+            style={{ height: "28%", paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 16px)" }}
           >
-            {/* Status row */}
-            <div className="mb-4 flex items-center gap-3">
-              <span className="relative flex h-3 w-3 shrink-0">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-60" />
-                <span className="relative inline-flex h-3 w-3 rounded-full bg-red-400" />
-              </span>
-              <span className="text-base font-medium text-red-400">Listening</span>
-              <span className="font-mono text-base text-red-400">{formatElapsed(elapsed)}</span>
+            <div className={["flex items-center gap-2 rounded-full border px-5 py-2.5 transition-all duration-150", inCancelZone ? "border-red-400/50 bg-red-500/15 text-red-400" : "border-white/12 text-[color:var(--text-2)]"].join(" ")}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+              <span className="text-sm">Release here to cancel</span>
             </div>
-            {/* Progress bar */}
-            <div className="h-[3px] w-full overflow-hidden rounded-full bg-[color:var(--bg-3)]">
-              <div
-                className={["h-full rounded-full transition-[width] duration-1000 ease-linear", elapsed >= 50 ? "bg-red-400" : "bg-[color:var(--accent)]"].join(" ")}
-                style={{ width: `${Math.min((elapsed / 60) * 100, 100)}%` }}
-              />
-            </div>
-            <p className="mt-3 text-center text-sm text-[color:var(--text-2)]">Release to stop</p>
           </div>
         </div>
       )}
