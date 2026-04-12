@@ -68,6 +68,20 @@ export function Composer({
 
   const { recorderState, elapsed, startRecording, stopRecording } = useVoiceRecorder(handleTranscribed);
 
+  // Suppress text selection anywhere on the page while recording on mobile.
+  // Applied immediately (not waiting for the overlay to mount) to close the
+  // brief gap between touchstart and the first React re-render.
+  useEffect(() => {
+    if (!isMobile || recorderState !== "recording") return;
+    const prev = document.body.style.userSelect;
+    document.body.style.userSelect = "none";
+    (document.body.style as CSSStyleDeclaration & { webkitUserSelect: string }).webkitUserSelect = "none";
+    return () => {
+      document.body.style.userSelect = prev;
+      (document.body.style as CSSStyleDeclaration & { webkitUserSelect: string }).webkitUserSelect = prev;
+    };
+  }, [isMobile, recorderState]);
+
   const { images, readyUrls, readyKeys, addFiles, removeImage, clearAll } = useImageAttach(token);
 
   const atLimit = images.filter((i) => i.status !== "error").length >= MAX_IMAGES;
@@ -507,19 +521,43 @@ export function Composer({
         </div>
       )}
 
-      {/* Hold-to-talk release overlay — mobile only.
-          Mounted as soon as recording starts. A new fixed element is completely
-          independent of the original touch sequence, so iOS can't cancel it
-          when the mic button is removed from the DOM. Any finger-up anywhere
-          on screen hits this overlay and stops the recording. */}
+      {/* Hold-to-talk overlay — mobile only.
+          • Fixed + fullscreen so any finger-up anywhere stops recording.
+          • Backdrop blur + dim separates the recording state from everything
+            behind it, preventing confusion with prompt cards or message list.
+          • Recording card is rendered INSIDE the overlay so it appears above
+            the blurred content at a safe distance from the screen edges. */}
       {isMobile && recorderState === "recording" && (
         <div
-          className="fixed inset-0 z-[200]"
+          className="fixed inset-0 z-[200] flex flex-col justify-end bg-black/50 backdrop-blur-sm"
           style={{ touchAction: "none" }}
           onTouchEnd={() => { holdActiveRef.current = false; void stopRecording(); }}
           onPointerUp={() => { holdActiveRef.current = false; void stopRecording(); }}
           onTouchCancel={() => { holdActiveRef.current = false; void stopRecording(); }}
-        />
+        >
+          <div
+            className="mx-4 mb-6 overflow-hidden rounded-2xl border border-red-500/15 bg-[color:var(--bg-2)] p-5 shadow-2xl"
+            style={{ marginBottom: "calc(env(safe-area-inset-bottom, 0px) + 24px)" }}
+          >
+            {/* Status row */}
+            <div className="mb-4 flex items-center gap-3">
+              <span className="relative flex h-3 w-3 shrink-0">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-60" />
+                <span className="relative inline-flex h-3 w-3 rounded-full bg-red-400" />
+              </span>
+              <span className="text-base font-medium text-red-400">Listening</span>
+              <span className="font-mono text-base text-red-400">{formatElapsed(elapsed)}</span>
+            </div>
+            {/* Progress bar */}
+            <div className="h-[3px] w-full overflow-hidden rounded-full bg-[color:var(--bg-3)]">
+              <div
+                className={["h-full rounded-full transition-[width] duration-1000 ease-linear", elapsed >= 50 ? "bg-red-400" : "bg-[color:var(--accent)]"].join(" ")}
+                style={{ width: `${Math.min((elapsed / 60) * 100, 100)}%` }}
+              />
+            </div>
+            <p className="mt-3 text-center text-sm text-[color:var(--text-2)]">Release to stop</p>
+          </div>
+        </div>
       )}
 
       {/* Expand modal */}
