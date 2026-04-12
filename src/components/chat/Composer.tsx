@@ -74,16 +74,21 @@ export function Composer({
   const inCancelZoneRef = useRef(false);
   const cancelZoneRef = useRef<HTMLDivElement>(null);
 
-  function updateCancelZone(clientY: number) {
-    // Use the actual cancel zone element bounds + 15px buffer above it,
-    // so the pill is easy to hit without pinpoint precision.
+  // Returns true only when the pointer is within the pill element ± CANCEL_BUFFER px.
+  // Checking BOTH top and bottom prevents the entire area below the pill from
+  // becoming a cancel zone, which would accidentally cancel when the composer
+  // sits at the bottom of the screen (user's finger already below the pill).
+  const CANCEL_BUFFER = 24;
+  function isOverCancelPill(clientX: number, clientY: number) {
     const el = cancelZoneRef.current;
-    const threshold = el
-      ? el.getBoundingClientRect().top - 15
-      : window.innerHeight * 0.72;
-    const inZone = clientY >= threshold;
-    inCancelZoneRef.current = inZone;
-    setInCancelZone(inZone);
+    if (!el) return false;
+    const rect = el.getBoundingClientRect();
+    return (
+      clientY >= rect.top    - CANCEL_BUFFER &&
+      clientY <= rect.bottom + CANCEL_BUFFER &&
+      clientX >= rect.left   - CANCEL_BUFFER &&
+      clientX <= rect.right  + CANCEL_BUFFER
+    );
   }
 
   function handleOverlayCancel() {
@@ -552,14 +557,7 @@ export function Composer({
           className="fixed inset-0 z-[200] flex flex-col bg-black/55 backdrop-blur-sm"
           style={{ touchAction: "none" }}
           onPointerMove={(e) => {
-            // iOS re-targets pointer events (but not touch events) to newly-mounted
-            // elements — confirmed because onPointerUp reliably fires here.
-            // onPointerMove therefore also works, giving us real-time highlight tracking.
-            const el = cancelZoneRef.current;
-            const threshold = el
-              ? el.getBoundingClientRect().top - 15
-              : window.innerHeight * 0.72;
-            const inZone = e.clientY >= threshold;
+            const inZone = isOverCancelPill(e.clientX, e.clientY);
             inCancelZoneRef.current = inZone;
             setInCancelZone(inZone);
           }}
@@ -567,11 +565,7 @@ export function Composer({
             holdActiveRef.current = false;
             inCancelZoneRef.current = false;
             setInCancelZone(false);
-            const el = cancelZoneRef.current;
-            const threshold = el
-              ? el.getBoundingClientRect().top - 15
-              : window.innerHeight * 0.72;
-            if (e.clientY >= threshold) {
+            if (isOverCancelPill(e.clientX, e.clientY)) {
               cancelRecording();
             } else {
               void stopRecording();
@@ -580,16 +574,11 @@ export function Composer({
           onPointerCancel={handleOverlayCancel}
           onTouchEnd={(e) => {
             // Fallback for browsers where pointer events don't fire on overlay.
-            // Guards against double-firing: stopRecording/cancelRecording are idempotent.
-            const y = e.changedTouches[0]?.clientY ?? 0;
-            const el = cancelZoneRef.current;
-            const threshold = el
-              ? el.getBoundingClientRect().top - 15
-              : window.innerHeight * 0.72;
+            const t = e.changedTouches[0];
             holdActiveRef.current = false;
             inCancelZoneRef.current = false;
             setInCancelZone(false);
-            if (y >= threshold) {
+            if (t && isOverCancelPill(t.clientX, t.clientY)) {
               cancelRecording();
             } else {
               void stopRecording();
@@ -622,11 +611,13 @@ export function Composer({
 
           {/* ── Cancel zone (bottom 28%) ── */}
           <div
-            ref={cancelZoneRef}
-            className={["flex flex-col items-center justify-start gap-3 pt-5 transition-colors duration-150", inCancelZone ? "bg-red-500/10" : ""].join(" ")}
+            className="flex flex-col items-center justify-start gap-3 pt-5"
             style={{ height: "28%", paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 16px)" }}
           >
-            <div className={["flex items-center gap-2 rounded-full border px-5 py-2.5 transition-all duration-150", inCancelZone ? "border-red-400/50 bg-red-500/15 text-red-400" : "border-white/12 text-[color:var(--text-2)]"].join(" ")}>
+            <div
+              ref={cancelZoneRef}
+              className={["flex items-center gap-2 rounded-full border px-5 py-2.5 transition-all duration-150", inCancelZone ? "border-red-400/50 bg-red-500/15 text-red-400 scale-105" : "border-white/15 text-[color:var(--text-2)]"].join(" ")}
+            >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
               </svg>
