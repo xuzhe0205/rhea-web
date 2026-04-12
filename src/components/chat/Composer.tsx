@@ -36,7 +36,6 @@ export function Composer({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const holdActiveRef = useRef(false);
-  const moveCleanupRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     const mq = window.matchMedia("(hover: none) and (pointer: coarse)");
@@ -88,18 +87,12 @@ export function Composer({
   }
 
   function handleOverlayCancel() {
-    moveCleanupRef.current?.();
-    moveCleanupRef.current = null;
     holdActiveRef.current = false;
     inCancelZoneRef.current = false;
     setInCancelZone(false);
     cancelRecording();
   }
 
-  // Clean up document touchmove listener if component unmounts mid-recording
-  useEffect(() => {
-    return () => { moveCleanupRef.current?.(); moveCleanupRef.current = null; };
-  }, []);
 
   // Suppress text selection anywhere on the page while recording on mobile.
   // Applied immediately (not waiting for the overlay to mount) to close the
@@ -443,28 +436,9 @@ export function Composer({
                     return;
                   }
 
-                  // Permission already granted — own the full gesture.
+                  // Permission granted — own the full gesture.
                   e.preventDefault();
                   holdActiveRef.current = true;
-
-                  // iOS does NOT re-target touchmove to newly-mounted elements —
-                  // only touchend gets re-targeted (to whatever is under the finger).
-                  // So we register a native document listener RIGHT NOW, synchronously,
-                  // before startRecording() triggers a re-render that removes this button.
-                  // This is the only reliable way to track finger position on iOS.
-                  function onDocMove(ev: TouchEvent) {
-                    const y = ev.touches[0]?.clientY ?? 0;
-                    const el = cancelZoneRef.current;
-                    const threshold = el
-                      ? el.getBoundingClientRect().top - 15
-                      : window.innerHeight * 0.72;
-                    const inZone = y >= threshold;
-                    inCancelZoneRef.current = inZone;
-                    setInCancelZone(inZone);
-                  }
-                  document.addEventListener("touchmove", onDocMove, { passive: true });
-                  moveCleanupRef.current = () => document.removeEventListener("touchmove", onDocMove);
-
                   void startRecording();
                 } : undefined}
               >
@@ -577,22 +551,44 @@ export function Composer({
         <div
           className="fixed inset-0 z-[200] flex flex-col bg-black/55 backdrop-blur-sm"
           style={{ touchAction: "none" }}
+          onPointerMove={(e) => {
+            // iOS re-targets pointer events (but not touch events) to newly-mounted
+            // elements — confirmed because onPointerUp reliably fires here.
+            // onPointerMove therefore also works, giving us real-time highlight tracking.
+            const el = cancelZoneRef.current;
+            const threshold = el
+              ? el.getBoundingClientRect().top - 15
+              : window.innerHeight * 0.72;
+            const inZone = e.clientY >= threshold;
+            inCancelZoneRef.current = inZone;
+            setInCancelZone(inZone);
+          }}
+          onPointerUp={(e) => {
+            holdActiveRef.current = false;
+            inCancelZoneRef.current = false;
+            setInCancelZone(false);
+            const el = cancelZoneRef.current;
+            const threshold = el
+              ? el.getBoundingClientRect().top - 15
+              : window.innerHeight * 0.72;
+            if (e.clientY >= threshold) {
+              cancelRecording();
+            } else {
+              void stopRecording();
+            }
+          }}
+          onPointerCancel={handleOverlayCancel}
           onTouchEnd={(e) => {
-            // Read where the finger LIFTED from changedTouches — this is reliable
-            // regardless of whether touchmove tracking worked. No dependency on refs
-            // updated by touchmove events that iOS may not have delivered.
+            // Fallback for browsers where pointer events don't fire on overlay.
+            // Guards against double-firing: stopRecording/cancelRecording are idempotent.
             const y = e.changedTouches[0]?.clientY ?? 0;
             const el = cancelZoneRef.current;
             const threshold = el
               ? el.getBoundingClientRect().top - 15
               : window.innerHeight * 0.72;
-
-            moveCleanupRef.current?.();
-            moveCleanupRef.current = null;
             holdActiveRef.current = false;
             inCancelZoneRef.current = false;
             setInCancelZone(false);
-
             if (y >= threshold) {
               cancelRecording();
             } else {
