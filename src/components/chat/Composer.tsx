@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { RateLimitError } from "@/lib/api";
 import { ImageStrip } from "@/components/chat/ImageStrip";
 import {
   formatElapsed,
@@ -66,13 +67,16 @@ export function Composer({
   }, []);
 
   const handleTranscribed = useCallback(async (blob: Blob) => {
-    const transcript = await transcribeAudio(blob, token);
-    if (!transcript) return;
-    setValue((prev) => {
-      const joined = prev ? `${prev} ${transcript}` : transcript;
-      return joined;
-    });
-    inputRef.current?.focus();
+    try {
+      const transcript = await transcribeAudio(blob, token);
+      if (!transcript) return;
+      setValue((prev) => (prev ? `${prev} ${transcript}` : transcript));
+      inputRef.current?.focus();
+    } catch (err) {
+      if (err instanceof RateLimitError) {
+        showError("Too many transcription requests — please wait a moment.");
+      }
+    }
   }, [token]);
 
   const { recorderState, elapsed, startRecording, stopRecording, cancelRecording } = useVoiceRecorder(handleTranscribed);

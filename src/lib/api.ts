@@ -2,6 +2,14 @@ export const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE?.replace(/\/$/, "") ||
   "http://localhost:8080";
 
+/** Thrown when the server returns HTTP 429 (rate limit exceeded). */
+export class RateLimitError extends Error {
+  constructor(message = "Too many requests — please slow down.") {
+    super(message);
+    this.name = "RateLimitError";
+  }
+}
+
 export async function apiFetch<T>(
   path: string,
   opts: RequestInit & { token?: string | null } = {},
@@ -26,6 +34,7 @@ export async function apiFetch<T>(
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     const msg = text || `${res.status} ${res.statusText}`;
+    if (res.status === 429) throw new RateLimitError(msg);
     throw new Error(msg);
   }
 

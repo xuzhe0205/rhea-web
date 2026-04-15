@@ -25,6 +25,7 @@ import {
   type FavoriteMessageDTO,
 } from "@/lib/messages";
 import { startChatStream, type RagStats } from "@/lib/chat-stream";
+import { RateLimitError } from "@/lib/api";
 import {
   createHighlightAnnotation,
   groupAnnotationsByMessageId,
@@ -190,6 +191,7 @@ export function ChatShell() {
   const [loadingOlderFor, setLoadingOlderFor] = useState<string | null>(null);
   const [hasMoreByConversation, setHasMoreByConversation] = useState<Record<string, boolean>>({});
   const [streamingConversationId, setStreamingConversationId] = useState<string | null>(null);
+  const [sendBanner, setSendBanner] = useState<string | null>(null);
 
   const [selectedModelByConversation, setSelectedModelByConversation] = useState<
     Record<string, string>
@@ -1416,7 +1418,11 @@ export function ChatShell() {
       }
 
       return true;
-    } catch {
+    } catch (err) {
+      if (err instanceof RateLimitError) {
+        setSendBanner("Too many requests — please wait a moment before sending again.");
+        window.setTimeout(() => setSendBanner(null), 6000);
+      }
       return false;
     } finally {
       setStreamingConversationId(null);
@@ -1697,6 +1703,14 @@ export function ChatShell() {
                     </div>
                   )}
 
+                  {sendBanner && (
+                    <div className="mb-2 flex items-center gap-2 rounded-[var(--radius-md)] border border-amber-500/20 bg-amber-500/8 px-3 py-2 text-xs text-amber-400">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true" className="shrink-0">
+                        <path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                      {sendBanner}
+                    </div>
+                  )}
                   <Composer
                     token={token!}
                     participants={participants}

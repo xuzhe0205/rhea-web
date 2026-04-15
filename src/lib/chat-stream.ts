@@ -1,4 +1,4 @@
-import { API_BASE } from "@/lib/api";
+import { API_BASE, RateLimitError } from "@/lib/api";
 
 export type ChatStreamRequest = {
   message: string;
@@ -78,6 +78,7 @@ export async function startChatStream({
       const text = await res.text();
       if (text) message = text;
     } catch {}
+    if (res.status === 429) throw new RateLimitError(message);
     throw new Error(message);
   }
 

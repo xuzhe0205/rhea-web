@@ -1,4 +1,4 @@
-import { API_BASE } from "./api";
+import { API_BASE, RateLimitError } from "./api";
 
 export async function transcribeAudio(
   blob: Blob,
@@ -19,6 +19,7 @@ export async function transcribeAudio(
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
+    if (res.status === 429) throw new RateLimitError(text || "Too many transcription requests — please wait a moment.");
     throw new Error(text || `Transcription failed: ${res.status}`);
   }
 
