@@ -6,6 +6,26 @@ import { useRouter } from "next/navigation";
 import { AuthShell } from "@/components/auth/AuthShell";
 import { InlineAlert } from "@/components/ui/InlineAlert";
 import { useAuth } from "@/context/AuthContext";
+import { getToken } from "@/lib/auth";
+
+// Trusted external apps that may receive RHEA's JWT via ?return= handoff.
+// Comma-separated origins via NEXT_PUBLIC_TRUSTED_RETURN_ORIGINS;
+// falls back to localhost:3000 (chive-web in dev).
+const TRUSTED_RETURN_ORIGINS = (
+  process.env.NEXT_PUBLIC_TRUSTED_RETURN_ORIGINS ?? "http://localhost:3000"
+)
+  .split(",")
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+function isTrustedReturnUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return TRUSTED_RETURN_ORIGINS.includes(`${u.protocol}//${u.host}`);
+  } catch {
+    return false;
+  }
+}
 
 export default function LoginPage() {
   const router = useRouter();
@@ -19,6 +39,30 @@ export default function LoginPage() {
     setErr(null);
     try {
       await signIn(email, password);
+
+      // Honor ?return= — used by external apps (e.g., chive-web) doing SSO.
+      // For trusted external origins, we append the JWT in the URL hash so
+      // the target app's callback page can extract it. Internal paths just
+      // navigate normally.
+      const params = new URLSearchParams(window.location.search);
+      const returnUrl = params.get("return");
+
+      if (returnUrl) {
+        if (isTrustedReturnUrl(returnUrl)) {
+          const token = getToken();
+          if (token) {
+            window.location.href = `${returnUrl}#token=${token}`;
+            return;
+          }
+        }
+        // Internal relative path (e.g. /agents)
+        if (returnUrl.startsWith("/") && !returnUrl.startsWith("//")) {
+          router.push(returnUrl);
+          return;
+        }
+        // Else: fall through to default (untrusted external — refuse to redirect)
+      }
+
       router.push("/");
     } catch (e2: any) {
         const raw = e2?.message || "Login failed";
